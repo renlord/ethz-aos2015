@@ -21,6 +21,7 @@
 
 #define UART_BASE 0x48020000
 #define UART_SIZE 0x1000
+#define TX_FIFO_E 0x48020014
 
 static volatile uint32_t *uart_thr = (uint32_t *)(UART_BASE + 0x0000);
 static volatile uint32_t *uart_ier = (uint32_t *)(UART_BASE + 0x0004);
@@ -87,6 +88,8 @@ void serial_putchar(char c)
     if (c == '\n') serial_putchar('\r');
 
     // TODO: Wait until FIFO can hold more characters (i.e. TX_FIFO_E == 1)
-
+    while(!(TX_FIFO_E & 0x100));
+      
     // TODO: Write character
+    *uart_thr = c;
 }
