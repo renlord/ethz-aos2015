@@ -2,6 +2,14 @@
 #include <paging_kernel_arch.h>
 #include <omap44xx_led.h>
 
+#include <math.h>
+
+#define GPIO_OE 0x4A310134
+#define GPIO_DATAOUT 0x4A31013C
+
+
+static volatile uint32_t *gpio_oe = (uint32_t *)0x4A310134;
+static volatile uint32_t *gpio_dataout = (uint32_t *)0x4A31013C;
 //
 // LED section
 //
@@ -25,6 +33,7 @@ void led_set_state(bool new_state)
 {
 }
 
+
 /*
  * Flash the LED On the pandaboard
  * TODO: implement this function for milestone 0
@@ -32,13 +41,21 @@ void led_set_state(bool new_state)
 __attribute__((noreturn))
 void led_flash(void)
 {
-    // TODO: Output enable
+    int bit = 1<<8;
+    int inverse = (0xFFFFFFFF ^ bit);
+    
+    *gpio_oe &= inverse;
 
-    // TODO: you'll want to change the infinite loop here for milestone 1.
-    while (true) {
-        // TODO: Write data out
-
-        // TODO: wait for approximately 1 second.
+    int i = 0;
+    while(true) {
+        // Write data out
+        if(i++ % 2 == 0)
+            *gpio_dataout |= bit;
+        else
+            *gpio_dataout &= inverse;
+      
+        for(int j = 0; j < 1<<11; j++)
+            printf("i: %d\n", i);
     }
 }
 

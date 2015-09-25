@@ -158,7 +158,7 @@ void arch_init(void *pointer)
     serial_init(); // TODO: complete implementation of serial_init
     // You should be able to call serial_purchar(42); here.
     // Also, you can call printf here!
-    //serial_putchar(42);
+    printf("Hello World!\n");
     
     // TODO: Produce some output that will surprise your TA.
     // TODO: complete implementation of led_flash -- implementation is in
