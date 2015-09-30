@@ -146,6 +146,39 @@ extern void paging_map_device_section(uintptr_t ttbase, lvaddr_t va, lpaddr_t pa
  */
 static void paging_init(void)
 {
+    printf("\n");
+    printf("Intialising Page Tables\n");
+
+    // Configure system to use TTBR1 for Virtual Addresses that are >= 2GB.
+    uint32_t ttbcr;
+    ttbcr = cp15_read_ttbcr();
+    ttbcr |= 1;
+
+    // 1 Byte offset from the Most Significant Bit. Therefore
+    // TTCR.N = 1.
+    cp15_write_ttbcr(ttbcr);
+
+    lvaddr_t va = 0x80000000;
+    lvaddr_t pa = 0;
+
+    uintptr_t l1_high = (uintptr_t) 0x80000000;
+    uintptr_t l1_low = (uintptr_t) 0;
+
+    // create the L1 Page Table
+    // since we restrict 2GB to Process-Specific and 2GB to Kernel
+    for (int i = 0; i < ARM_L1_MAX_ENTRIES/2; i++) {
+        paging_map_kernel_section(l1_high, pa, pa);
+        paging_map_kernel_section(l1_low, va, pa);        
+
+        va += ARM_L1_SECTION_BYTES;
+        pa += ARM_L1_SECTION_BYTES;        
+    } 
+
+    cp15_write_ttbr1(l1_high);
+    cp15_write_ttbr0(l1_low);
+    
+    printf("Page Table Intialisation Complete\n");
+    printf("\n");
 }
 
 /**
@@ -155,17 +188,12 @@ static void paging_init(void)
  */
 void arch_init(void *pointer)
 {
-    serial_init(); // TODO: complete implementation of serial_init
-    // You should be able to call serial_purchar(42); here.
-    // Also, you can call printf here!
-    printf("Hello World!\n");
+    serial_init(); 
+    serial_putchar(42);
     
-    // TODO: Produce some output that will surprise your TA.
-    // TODO: complete implementation of led_flash -- implementation is in
-    // kernel/arch/omap44xx/omap_led.c
     led_flash();
 
-    for(;;); // Infinite loop to keep the system busy for milestone 0.
+    //for(;;); // Infinite loop to keep the system busy for milestone 0.
 
     // You will need this section of the code for milestone 1.
     struct multiboot_info *mb = (struct multiboot_info *)pointer;
