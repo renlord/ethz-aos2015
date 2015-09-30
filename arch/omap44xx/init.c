@@ -150,29 +150,39 @@ extern void paging_map_device_section(uintptr_t ttbase, lvaddr_t va, lpaddr_t pa
  */
 static void paging_init(void)
 {
-    // Write value 0x010 to TTBCR (signifies 4KB in TTBR0)
-    int val = cp15_read_ttbcr() >> 3;
-    cp15_write_ttbcr((val << 3) + TTBCRN);
+    printf("\n");
+    printf("Intialising Page Tables\n");
 
-    // Allocate memory for L1 page tables
-    lvaddr_t ttbr0_addr = (lvaddr_t)0x80000000;
-    lvaddr_t ttbr1_addr = (lvaddr_t)0xC0000001;
+    // Configure system to use TTBR1 for Virtual Addresses that are >= 2GB.
+    uint32_t ttbcr;
+    ttbcr = cp15_read_ttbcr();
+    ttbcr |= 1;
+
+    // 1 Byte offset from the Most Significant Bit. Therefore
+    // TTCR.N = 1.
+    cp15_write_ttbcr(ttbcr);
+
+    lvaddr_t va = 0x80000000;
+    lvaddr_t pa = 0;
+
+    uintptr_t l1_high = (uintptr_t) 0x80000000;
+    uintptr_t l1_low = (uintptr_t) 0;
+
+    // create the L1 Page Table
+    // since we restrict 2GB to Process-Specific and 2GB to Kernel
+    for (int i = 0; i < ARM_L1_MAX_ENTRIES/2; i++) {
+        paging_map_kernel_section(l1_high, pa, pa);
+        paging_map_kernel_section(l1_low, va, pa);        
+
+        va += ARM_L1_SECTION_BYTES;
+        pa += ARM_L1_SECTION_BYTES;        
+    } 
+
+    cp15_write_ttbr1(l1_high);
+    cp15_write_ttbr0(l1_low);
     
-    // Write addresses into TTBR[0-1] registers
-    cp15_write_ttbr0(ttbr0_addr);
-    cp15_write_ttbr1(ttbr1_addr);
-    
-    // Debug. TODO remove //
-    printf("ttbr0 addr:  0x%010x (assigned: 0x%010x)\n", cp15_read_ttbr0(), ttbr0_addr);
-    printf("ttbr1 addr:  0x%010x (assigned: 0x%010x)\n", cp15_read_ttbr1(), ttbr1_addr);
-    printf("ttbrc value: 0x%010x\n", cp15_read_ttbcr());
-    ////////////////////////
-    
-    // Allocate 1KB memory for L2 page tables
-    // lpaddr_t l2_pt = alloc_phys(1<<10);
-    printf("printf addr: 0x%010x\n", printf);
-    
-    *((lpaddr_t*)ttbr1_addr) = 0x80000000;
+    printf("Page Table Intialisation Complete\n");
+    printf("\n");
 }
 
 /**
@@ -182,10 +192,12 @@ static void paging_init(void)
  */
 void arch_init(void *pointer)
 {
-    serial_init();
-    printf("Hello World!\n");
+    serial_init(); 
+    serial_putchar(42);
     
-    // led_flash();
+    led_flash();
+
+    //for(;;); // Infinite loop to keep the system busy for milestone 0.
 
     
     // You will need this section of the code for milestone 1.
