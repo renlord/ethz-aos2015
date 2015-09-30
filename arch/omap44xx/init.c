@@ -32,6 +32,12 @@
 #include <omap44xx_map.h>
 #include <omap44xx_led.h>
 
+#include <startup_helpers.h>
+
+#define TTBR0_SIZE 2<<12
+#define TTBR1_SIZE 2<<14
+#define TTBCRN 0b001
+
 /**
  * \brief Kernel stack.
  *
@@ -141,11 +147,32 @@ extern void paging_map_device_section(uintptr_t ttbase, lvaddr_t va, lpaddr_t pa
 
 /**
  * Create initial (temporary) page tables.
- *
- * TODO: you need to implement this function for milestone 1.
  */
 static void paging_init(void)
 {
+    // Write value 0x010 to TTBCR (signifies 4KB in TTBR0)
+    int val = cp15_read_ttbcr() >> 3;
+    cp15_write_ttbcr((val << 3) + TTBCRN);
+
+    // Allocate memory for L1 page tables
+    lvaddr_t ttbr0_addr = (lvaddr_t)0x80000000;
+    lvaddr_t ttbr1_addr = (lvaddr_t)0xC0000001;
+    
+    // Write addresses into TTBR[0-1] registers
+    cp15_write_ttbr0(ttbr0_addr);
+    cp15_write_ttbr1(ttbr1_addr);
+    
+    // Debug. TODO remove //
+    printf("ttbr0 addr:  0x%010x (assigned: 0x%010x)\n", cp15_read_ttbr0(), ttbr0_addr);
+    printf("ttbr1 addr:  0x%010x (assigned: 0x%010x)\n", cp15_read_ttbr1(), ttbr1_addr);
+    printf("ttbrc value: 0x%010x\n", cp15_read_ttbcr());
+    ////////////////////////
+    
+    // Allocate 1KB memory for L2 page tables
+    // lpaddr_t l2_pt = alloc_phys(1<<10);
+    printf("printf addr: 0x%010x\n", printf);
+    
+    *((lpaddr_t*)ttbr1_addr) = 0x80000000;
 }
 
 /**
@@ -155,23 +182,18 @@ static void paging_init(void)
  */
 void arch_init(void *pointer)
 {
-    serial_init(); // TODO: complete implementation of serial_init
-    // You should be able to call serial_purchar(42); here.
-    // Also, you can call printf here!
+    serial_init();
     printf("Hello World!\n");
     
-    // TODO: Produce some output that will surprise your TA.
-    // TODO: complete implementation of led_flash -- implementation is in
-    // kernel/arch/omap44xx/omap_led.c
-    led_flash();
+    // led_flash();
 
-    for(;;); // Infinite loop to keep the system busy for milestone 0.
-
+    
     // You will need this section of the code for milestone 1.
     struct multiboot_info *mb = (struct multiboot_info *)pointer;
     parse_multiboot_image_header(mb);
 
     paging_init();
+    // while(true);
     cp15_enable_mmu();
     printf("MMU enabled\n");
 
