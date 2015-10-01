@@ -126,6 +126,7 @@ void gic_init(void)
     cpu_number = pl130_gic_ICDICTR_cpu_number_extract(gic_config);
     sec_extn_implemented = pl130_gic_ICDICTR_TZ_extract(gic_config);
 
+    printf("thus far...\n");
     // set priority mask of cpu interface, currently set to lowest priority
     // to accept all interrupts
     pl130_gic_ICCPMR_wr(&gic, 0xff);

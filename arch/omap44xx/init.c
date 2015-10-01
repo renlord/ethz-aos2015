@@ -141,8 +141,6 @@ extern void paging_map_device_section(uintptr_t ttbase, lvaddr_t va, lpaddr_t pa
 
 /**
  * Create initial (temporary) page tables.
- *
- * TODO: you need to implement this function for milestone 1.
  */
 static union arm_l1_entry l1_lo[2 * ARM_L1_MAX_ENTRIES] 
 __attribute__((aligned(ARM_L1_ALIGN)));
@@ -180,10 +178,9 @@ static void paging_init(void)
         paging_map_device_section((uintptr_t) aligned_l1_hi, p, p);
         p += BYTES_PER_SECTION;
     }
-    printf("paging_init()\n");
 
     cp15_write_ttbr0(mem_to_local_phys((uintptr_t) aligned_l1_lo));
-    cp15_write_ttbr1(mem_to_local_phys((uintptr_t) aligned_l1_hi));
+    cp15_write_ttbr1(mem_to_local_phys((uintptr_t) aligned_l1_hi));    
 }
 
 /**
@@ -208,6 +205,7 @@ void arch_init(void *pointer)
     parse_multiboot_image_header(mb);
 
     paging_init();
+
     cp15_enable_mmu();
     printf("MMU enabled\n");
 
