@@ -2,6 +2,11 @@
 #include <paging_kernel_arch.h>
 #include <omap44xx_led.h>
 
+#include <math.h>
+
+#define GPIO_OE 0x4A310134
+#define GPIO_DATAOUT 0x4A31013C
+
 //
 // LED section
 //
@@ -30,7 +35,6 @@ void led_map_register(void)
 void led_set_state(bool new_state)
 {
 }
-
 // A quick and dirty delay routine I learnt from the World Wide Web.
 void delay(unsigned int ticks) 
 {
@@ -42,25 +46,30 @@ void delay(unsigned int ticks)
     }
 }
 
+
 /*
  * Flash the LED On the pandaboard
+ * TODO: implement this function for milestone 0
  */
-//__attribute__((noreturn))
 void led_flash(void)
 {
+    // Bitmasks for turning bit 8 on and off
+    int bitmask = 1<<8;
+    int bitmask_inv = (0xFFFFFFFF ^ bitmask);
+
     // I have to cheat a little as there's no timer and i have no idea
     // how to access the CPU cycles
-    // Output enable
-    *gpio1_oe = 0x0;
+    // TODO: Output enable
+    *gpio1_oe &= bitmask_inv;
 
     // TODO: you'll want to change the infinite loop here for milestone 1.
     printf("LED Turning ON\n");
-    // Write data out
-    *gpio1_dataout = (1 << 8);
-    // wait for approximately 1 second.
+    // TODO: Write data out
+    *gpio1_dataout |= bitmask;
+    // TODO: wait for approximately 1 second.
     delay(225000);
     printf("LED Turning OFF\n");
-    *gpio1_dataout = 0;
+    *gpio1_dataout &= bitmask_inv;
     delay(225000);
 }
 
