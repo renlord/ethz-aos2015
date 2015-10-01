@@ -144,50 +144,44 @@ extern void paging_map_device_section(uintptr_t ttbase, lvaddr_t va, lpaddr_t pa
  *
  * TODO: you need to implement this function for milestone 1.
  */
-const union arm_l1_entry pt[2 * ARM_L1_MAX_ENTRIES];
+static union arm_l1_entry l1_lo[2 * ARM_L1_MAX_ENTRIES] 
+__attribute__((aligned(ARM_L1_ALIGN)));
+static union arm_l1_entry *aligned_l1_lo;
+
+static union arm_l1_entry l1_hi[2 * ARM_L1_MAX_ENTRIES]
+__attribute__((aligned(ARM_L1_ALIGN)));
+static union arm_l1_entry *aligned_l1_hi;
+
 static void paging_init(void)
 {
-    printf("\n");
-    printf("Intialising Page Tables\n");
+    aligned_l1_lo = (union arm_l1_entry *)ROUND_UP((uintptr_t) l1_lo, 
+        ARM_L1_ALIGN);
+    aligned_l1_hi = (union arm_l1_entry *)ROUND_UP((uintptr_t) l1_hi,
+        ARM_L1_ALIGN);
 
-    // Configure system to use TTBR1 for Virtual Addresses that are >= 2GB.
     uint32_t ttbcr;
     ttbcr = cp15_read_ttbcr();
-    ttbcr = (ttbcr & (~7)) | 1;
-    
-    // Let Process Specific Addresses occupy from 0 ~ 0x80000000 and
-    // Kernel Specific Addresses occupy from 0x80000000 ~ 0xFFFFFFFF
-    // TTCR.N = 1.
+    ttbcr = (ttbcr & ~7) | 1;
+
     cp15_write_ttbcr(ttbcr);
 
-    // Read cp15 registers
-    printf("TTBR0: %x\n", cp15_read_ttbr0());
-    printf("TTBR1: %x\n", cp15_read_ttbr1());
-
-    lvaddr_t offset = 0;
+    lpaddr_t p = 0;
+    lpaddr_t pend = 0x80000000;
     
-    // Initialise a Page Table
-    uintptr_t pt_addr =  (uintptr_t) pt; 
-    uintptr_t hi_pt_addr = (uintptr_t) pt + 0x80000000; 
+    while (p < pend) {
+        paging_map_device_section((uintptr_t) aligned_l1_lo, p, p);
+        p += BYTES_PER_SECTION;
+    }   
 
-    // create the L1 Page Table
-    // since we restrict 2GB to Process-Specific and 2GB to Kernel
-    for (int i = 0; i < ARM_L1_MAX_ENTRIES; i++,
-        offset += ARM_L1_SECTION_BYTES) 
-    {
-        paging_map_kernel_section((uintptr_t) pt, offset, offset);        
-    } 
+    p = 0x80000000;
+    pend = 0xffffffff;
+    while (p < pend) {
+        paging_map_device_section((uintptr_t) aligned_l1_hi, p, p);
+        p += BYTES_PER_SECTION;
+    }
 
-    // load the page tables.
-    cp15_write_ttbr1(hi_pt_addr);
-    cp15_write_ttbr0(pt_addr);
-
-    // Everything below will show if the mapping from VA to PA is correct.
-    printf("AFTER TTBR0: %x\n", cp15_read_ttbr0());
-    printf("AFTER TTBR1: %x\n", cp15_read_ttbr1());
-    
-    printf("Page Table Intialisation Complete\n");
-    printf("\n");
+    cp15_write_ttbr0(mem_to_local_phys((uintptr_t) aligned_l1_hi));
+    cp15_write_ttbr1(mem_to_local_phys((uintptr_t) aligned_l1_lo));
 }
 
 /**
@@ -197,19 +191,21 @@ static void paging_init(void)
  */
 void arch_init(void *pointer)
 {
-    serial_init(); 
-    serial_putchar(42);
+    serial_init(); // TODO: complete implementation of serial_init
+    // You should be able to call serial_purchar(42); here.
+    // Also, you can call printf here!
+    printf("Hello World!\n");
     
+    // TODO: Produce some output that will surprise your TA.
+    // TODO: complete implementation of led_flash -- implementation is in
+    // kernel/arch/omap44xx/omap_led.c
     led_flash();
-
-    //for(;;); // Infinite loop to keep the system busy for milestone 0.
 
     // You will need this section of the code for milestone 1.
     struct multiboot_info *mb = (struct multiboot_info *)pointer;
     parse_multiboot_image_header(mb);
 
     paging_init();
-    printf("Test\n");
     cp15_enable_mmu();
     printf("MMU enabled\n");
 
