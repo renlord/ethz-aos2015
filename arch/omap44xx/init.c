@@ -144,50 +144,70 @@ extern void paging_map_device_section(uintptr_t ttbase, lvaddr_t va, lpaddr_t pa
  *
  * TODO: you need to implement this function for milestone 1.
  */
-const union arm_l1_entry pt[2 * ARM_L1_MAX_ENTRIES];
+static union arm_l1_entry pt_lo[2 * ARM_L1_MAX_ENTRIES];
+static union arm_l1_entry pt_hi[2 * ARM_L1_MAX_ENTRIES];
 static void paging_init(void)
 {
     printf("\n");
-    printf("Intialising Page Tables\n");
+    printf("Initializing Page Tables\n");
+
+    uint32_t ttbrcn = 1;
 
     // Configure system to use TTBR1 for Virtual Addresses that are >= 2GB.
     uint32_t ttbcr;
     ttbcr = cp15_read_ttbcr();
-    ttbcr = (ttbcr & (~7)) | 1;
+    ttbcr = (ttbcr & (~7)) | ttbrcn;
     
-    // Let Process Specific Addresses occupy from 0 ~ 0x80000000 and
-    // Kernel Specific Addresses occupy from 0x80000000 ~ 0xFFFFFFFF
-    // TTCR.N = 1.
-    cp15_write_ttbcr(ttbcr);
+    uintptr_t pt_lo_base = ((uintptr_t) pt_lo + ARM_L1_MAX_ENTRIES) & ~0x1FFF; 
+    uintptr_t pt_hi_base = ((uintptr_t) pt_hi + ARM_L1_MAX_ENTRIES) & ~0x3FFF; 
 
-    // Read cp15 registers
-    printf("TTBR0: %x\n", cp15_read_ttbr0());
-    printf("TTBR1: %x\n", cp15_read_ttbr1());
+    // Everything below will show if the mapping from VA to PA is correct.
+    printf("BEFORE TTBR0: %x\n", pt_lo_base);
+    printf("BEFORE TTBR1: %x\n", pt_hi_base);
 
-    lvaddr_t offset = 0;
+    // load the page tables.
+    cp15_write_ttbr0(pt_lo_base);
+    cp15_write_ttbr1(pt_hi_base);
     
-    // Initialise a Page Table
-    uintptr_t pt_addr =  (uintptr_t) pt; 
-    uintptr_t hi_pt_addr = (uintptr_t) pt + 0x80000000; 
+    uintptr_t pt_lo_addr = cp15_read_ttbr0();
+    uintptr_t pt_hi_addr = cp15_read_ttbr1();
+
+    paging_arm_reset(pt_lo_addr, ARM_L1_MAX_ENTRIES);
+    paging_arm_reset(pt_hi_addr, ARM_L1_MAX_ENTRIES);
+    
+    printf("\nAFTER TTBR0: %x\n", cp15_read_ttbr0());
+    printf("AFTER TTBR1: %x\n", cp15_read_ttbr1());   
+
 
     // create the L1 Page Table
     // since we restrict 2GB to Process-Specific and 2GB to Kernel
-    for (int i = 0; i < ARM_L1_MAX_ENTRIES; i++,
-        offset += ARM_L1_SECTION_BYTES) 
-    {
-        paging_map_kernel_section((uintptr_t) pt, offset, offset);        
-    } 
-
-    // load the page tables.
-    cp15_write_ttbr1(hi_pt_addr);
-    cp15_write_ttbr0(pt_addr);
-
-    // Everything below will show if the mapping from VA to PA is correct.
-    printf("AFTER TTBR0: %x\n", cp15_read_ttbr0());
-    printf("AFTER TTBR1: %x\n", cp15_read_ttbr1());
+    printf("ARM_L1_MAX_ENTRIES: %u\n", ARM_L1_MAX_ENTRIES);
+    long long x = (long long) ARM_L1_MAX_ENTRIES;
+    long long y = (long long) ARM_L1_SECTION_BYTES;
+    printf("x*y: %lu\n", x*y);
+    for (long long offset = 0;
+         offset < x*y;
+         offset += ARM_L1_SECTION_BYTES) {
+        paging_map_kernel_section((uintptr_t) cp15_read_ttbr0(), offset, offset);
+        paging_map_kernel_section((uintptr_t) cp15_read_ttbr1(), offset, offset);
+    }
     
-    printf("Page Table Intialisation Complete\n");
-    printf("\n");
+    
+    printf("ARM_L1_SECTION_BYTES: %d\n\n",ARM_L1_SECTION_BYTES);
+    // for(int i = 0; i < 9*ARM_L1_SECTION_BYTES; i += ARM_L1_SECTION_BYTES){
+    //     paging_map_kernel_section(cp15_read_ttbr1(), i+0xfef00000, i+0x48000000);
+    //     printf("%d: mapping 0x%08x to 0x%08x\n",  i, i+0xfef00000, i+0x48000000);
+    // }
+
+    // uint32_t *tt = (uint32_t *)cp15_read_ttbr1();
+    // printf("\nbase: 0x%08x\n", tt);
+    // for(int i = 0; i < ARM_L1_MAX_ENTRIES; i++){
+    //     uint32_t e = tt[i];
+    //     if(e)
+    //         printf("pt_hi[%d]: 0x%08x\n",i,e);
+    // }
+    
+    // pt_hi[0xfef]=0x48020002;
 }
 
 /**
@@ -197,12 +217,10 @@ static void paging_init(void)
  */
 void arch_init(void *pointer)
 {
-    serial_init(); 
-    serial_putchar(42);
+    serial_init();
+    // serial_putchar(42);
     
-    led_flash();
-
-    //for(;;); // Infinite loop to keep the system busy for milestone 0.
+    // led_flash();
 
     // You will need this section of the code for milestone 1.
     struct multiboot_info *mb = (struct multiboot_info *)pointer;
@@ -210,6 +228,7 @@ void arch_init(void *pointer)
 
     paging_init();
     printf("Test\n");
+    // serial_map_registers();
     cp15_enable_mmu();
     printf("MMU enabled\n");
 

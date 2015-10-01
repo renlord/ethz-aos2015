@@ -74,7 +74,6 @@ paging_write_l1_entry(uintptr_t ttbase, lvaddr_t va, union arm_l1_entry l1)
 
 void paging_map_kernel_section(uintptr_t ttbase, lvaddr_t va, lpaddr_t pa)
 {
-
     union arm_l1_entry l1;
 
     l1.raw = 0;
