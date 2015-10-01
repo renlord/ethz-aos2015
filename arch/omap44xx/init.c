@@ -165,6 +165,7 @@ static void paging_init(void)
 
     cp15_write_ttbcr(ttbcr);
 
+
     lpaddr_t p = 0;
     lpaddr_t pend = 0x80000000;
     
@@ -174,14 +175,15 @@ static void paging_init(void)
     }   
 
     p = 0x80000000;
-    pend = 0xffffffff;
+    pend = 0xFFF00000;
     while (p < pend) {
         paging_map_device_section((uintptr_t) aligned_l1_hi, p, p);
         p += BYTES_PER_SECTION;
     }
+    printf("paging_init()\n");
 
-    cp15_write_ttbr0(mem_to_local_phys((uintptr_t) aligned_l1_hi));
-    cp15_write_ttbr1(mem_to_local_phys((uintptr_t) aligned_l1_lo));
+    cp15_write_ttbr0(mem_to_local_phys((uintptr_t) aligned_l1_lo));
+    cp15_write_ttbr1(mem_to_local_phys((uintptr_t) aligned_l1_hi));
 }
 
 /**
@@ -199,7 +201,7 @@ void arch_init(void *pointer)
     // TODO: Produce some output that will surprise your TA.
     // TODO: complete implementation of led_flash -- implementation is in
     // kernel/arch/omap44xx/omap_led.c
-    led_flash();
+    // led_flash();
 
     // You will need this section of the code for milestone 1.
     struct multiboot_info *mb = (struct multiboot_info *)pointer;
