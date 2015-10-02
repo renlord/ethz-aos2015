@@ -81,7 +81,7 @@ static void  __attribute__ ((noinline,noreturn)) text_init(void)
     led_map_register();
 
     // flash leds again
-    led_flash();
+    // led_flash();
 
     printf("The address of paging_map_kernel_section is %p\n",
            paging_map_kernel_section);
@@ -208,6 +208,7 @@ void arch_init(void *pointer)
 
     cp15_enable_mmu();
     printf("MMU enabled\n");
+    printf("glbl_core_data->mods_addr: 0x%08x\n", glbl_core_data->mods_addr);   
 
     text_init();
 }

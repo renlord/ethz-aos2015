@@ -63,24 +63,21 @@ struct dcb *spawn_init(const char *name)
     init_l1 = (union arm_l1_entry *)alloc_phys_aligned(1<<13, ARM_L1_ALIGN);
     init_l2 = (union arm_l2_entry *)alloc_phys_aligned(1<<21, ARM_L2_ALIGN);
     
-    // Write address of 1st level pagetable to ttbr0 (user space)
-    cp15_write_ttbr0((uintptr_t) init_l1);
-
     // Insert addresses for l2-tables in l1-table
-    lpaddr_t ttbr0 = cp15_read_ttbr0();
     for(lvaddr_t i = 0, j = (lvaddr_t) init_l2;
         i < ARM_L1_MAX_ENTRIES >> 1; // TODO read from ttbrc.n
         i += ARM_L1_BYTES_PER_ENTRY, j += ARM_L2_ALIGN)
     {
-        paging_map_user_pages_l1(ttbr0, i, j);
+        paging_map_user_pages_l1((uintptr_t)init_l1, i, j);
     }
     
-    // UNUSED(init_l1);
-    // UNUSED(init_l2);
-
+    
+    paging_context_switch((lpaddr_t) init_l1);
+    
+    
     // TODO: save address of user L1 page table in init_dcb->vspace
     init_dcb->vspace = (uintptr_t) init_l1;
-
+    
     // Map & Load init structures and ELF image
     // returns the entry point address and the global offset table base address
     genvaddr_t init_ep, got_base;
@@ -101,7 +98,7 @@ struct dcb *spawn_init(const char *name)
 
     // TODO: set pc and r10(got base) in register save area (disp_arm->save_area)
     disp_arm->save_area.named.r10 = got_base;
-    disp_arm->save_area.named.pc  = 0;
+    disp_arm->save_area.named.pc  = init_ep;
 
     return init_dcb;
 }

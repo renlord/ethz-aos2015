@@ -242,11 +242,15 @@ void map_and_load_init(const char *name, struct dcb *init_dcb,
 
     printf("calling load_init_image\n");
     load_init_image(&l2_info, name, ret_init_ep, ret_got_base);
+
     printf("got %"PRIxGENVADDR" as init ep from load_init_image\n", *ret_init_ep);
 
+    printf("bootinfo: 0x%08x\n", bootinfo);
+    printf("init_l2[2]: 0x%08x\n", init_l2[2]);
     /* Fill bootinfo struct */
     bootinfo->mem_spawn_core = KERNEL_IMAGE_SIZE; // Size of kernel
 
+    
     /* Initialize name field in generic part */
     struct dispatcher_shared_generic *disp
         = get_dispatcher_shared_generic(init_dcb->disp);

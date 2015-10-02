@@ -39,6 +39,7 @@ struct multiboot_modinfo *multiboot_find_module(const char *pathname)
 	struct multiboot_modinfo *mod = (struct multiboot_modinfo *)
         local_phys_to_mem(glbl_core_data->mods_addr);
 
+    printf("glbl_core_data->mods_addr: 0x%08x\n", glbl_core_data->mods_addr);   
     for(size_t i = 0; i < glbl_core_data->mods_count; i++) {
         const char *modname = (const char*)local_phys_to_mem(mod[i].string), *endstr;
 
