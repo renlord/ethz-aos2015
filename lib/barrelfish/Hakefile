@@ -1,0 +1,61 @@
+--------------------------------------------------------------------------
+-- Copyright (c) 2007-2011, ETH Zurich
+-- All rights reserved.
+--
+-- This file is distributed under the terms in the attached LICENSE file.
+-- If you do not find this file, copies can be found by writing to:
+-- ETH Zurich D-INFK, Haldeneggsteig 4, CH-8092 Zurich. Attn: Systems Group.
+--
+-- Hakefile for lib/barrelfish
+-- 
+--------------------------------------------------------------------------
+
+[(let arch_dir = "arch" ./. archFamily arch
+      common_srcs = [ "aos_rpc.c", "capabilities.c", "init.c", "dispatch.c",
+                      "threads.c", "thread_sync.c", "slab.c", "domain.c", "idc.c",
+                      "waitset.c", "event_queue.c", "event_mutex.c",
+                      "idc_export.c", "msgbuf.c",
+                      "monitor_client.c", "flounder_support.c", "flounder_glue_binding.c",
+                      "morecore.c", "debug.c", "heap.c", "ram_alloc.c",
+                      "slot_alloc/single_slot_alloc.c", "slot_alloc/multi_slot_alloc.c",
+                      "slot_alloc/slot_alloc.c", "slot_alloc/range_slot_alloc.c",
+                      "trace.c", "resource_ctrl.c", "coreset.c",
+                      "inthandler.c", "deferred.c", "paging.c"
+                    ]
+
+      idc_srcs = concat $ map getsrcs $ optInterconnectDrivers $ options arch
+          where
+            getsrcs "lmp" = [ "lmp_chan.c", "lmp_endpoints.c" ]
+            getsrcs _ = []
+
+      -- sources specific to the architecture family
+      archfam_srcs "arm"     = [ "arch/arm/debug.c", "arch/arm/dispatch.c", 
+                                 "arch/arm/sys_debug.c", "arch/arm/syscalls.c" ]
+      archfam_srcs _         = []
+
+      -- sources specific to the architecture
+      arch_srcs _     = []
+
+      arch_assembly "arm"     = [ "arch/arm/entry.S", "arch/arm/syscall.S" ]
+      arch_assembly _         = []
+
+  in
+    build library { target = "barrelfish",
+                    architectures = [arch],
+                    cFiles = arch_srcs arch ++ archfam_srcs (archFamily arch)
+                             ++ common_srcs ++ idc_srcs,
+                    assemblyFiles = arch_assembly (archFamily arch),
+                    flounderBindings = [ "mem", "octopus", "serial",
+                                         "interdisp", "spawn", "keyboard" ],
+                    -- only makes sense to compile monitor binding for lmp
+                    flounderTHCStubs = [ "octopus" ],
+                    flounderExtraBindings = [ ("monitor", ["lmp"]),
+		    			      ("monitor_blocking", ["lmp", "rpcclient"]),
+                                              ("mem", ["rpcclient"]),
+                                              ("octopus", ["rpcclient"]),
+                                              ("spawn", ["rpcclient"]),
+                                              ("serial", ["rpcclient"])],
+                    addIncludes = [ "include", "include" ./. arch_dir ],
+                    addGeneratedDependencies = [ "/include/asmoffsets.h" ]
+                  }
+ ) | arch <- allArchitectures ]
