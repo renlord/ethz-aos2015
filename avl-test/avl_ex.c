@@ -1,11 +1,14 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <assert.h>
  
 typedef unsigned int lpaddr_t;
 typedef unsigned int lvaddr_t;
 typedef unsigned int addr_t;
 
-typedef enum {V_TO_P, P_TO_V} avl_type;
+typedef enum {
+    V_TO_P, P_TO_V
+} avl_type;
     
 static struct addr_mapping {
     lpaddr_t vaddr;
@@ -28,16 +31,103 @@ static struct paging_state {
     
 };
 
-static void avl_rotate_left(struct avl_node *node) {
-    ; //TODO
+static void _clean_node_child_ref(struct avl_node *node) {
+    // Pre-Conditions
+    assert(node != NULL);
+    
+    node->left = NULL;
+    node->right = NULL;
+
+    // Post-Conditions
+    assert(node->left == NULL);
+    assert(node->right == NULL);
 }
 
-static void avl_rotate_right(struct avl_node *node) {
-    ; //TODO
+static void avl_rotate_left(struct avl_node *parent, struct avl_node *node) {
+    // Pre-Conditions
+    assert(node != NULL);
+    assert(parent->right == node || parent->left == node);
+    assert(node->right != NULL && node->left == NULL);
+    assert(node->right->right != NULL && node->right->left == NULL);
+
+    struct avl_node *new_child = node->right;
+    new_child->left = node;
+    _clean_node_child_ref(node); 
+    if (parent->left == node) 
+        parent->left = new_child;
+    else
+        parent->right = new_child;   
+ 
+    // Post-Conditions
+    assert(parent->left == new_child || parent->right == new_child);
+    assert(new_child->left == node && new_child->right != NULL);
+}
+
+static void avl_rotate_right(struct avl_node *parent, struct avl_node *node) {
+    // Pre-Conditions
+    assert(node != NULL);
+    assert(parent->left == node || parent->right == node);
+    assert(node->left != NULL && node->right == NULL);
+    assert(node->left->left != NULL && node->left->right == NULL);
+
+    struct avl_node *new_child = node->left;
+    new_child->right = node;
+    _clean_node_child_ref(node);
+    if (parent->left == node) 
+        parent->left = new_child;
+    else
+        parent->right = new_child;  
+ 
+    // Post-Conditions
+    assert(parent->left == new_child || parent->right == new_child);
+    assert(new_child->right == node && new_child->left != NULL);
+}
+
+static void avl_rotate_left_right(struct avl_node *parent, struct avl_node *node) {
+    // Pre-Conditions
+    assert(node != NULL);
+    assert(parent->left == node || parent->right == node);
+    assert(node->right != NULL && node->left == NULL);
+    assert(node->right->left != NULL && node->right->right == NULL);
+
+    struct avl_node *new_child = node->right;
+    new_child->left = node;
+    new_child->right = node->right->left;
+    _clean_node_child_ref(node);
+    if (parent->left == node) 
+        parent->left = new_child;
+    else
+        parent->right = new_child;  
+    
+    // Post-Conditions
+    assert(parent->left == new_child || parent->right == new_child);
+    assert(new_child->left == node && new_child->right != NULL);
+}
+
+static void avl_rotate_right_left(struct avl_node *parent, struct avl_node *node) {
+    // Pre-Conditions
+    assert(node != NULL);
+    assert(parent->left == node || parent->right == node);
+    assert(node->left != NULL && node->right == NULL);
+    assert(node->left->left == NULL && node->left->right != NULL);
+
+    struct avl_node *new_child = node->left;
+    new_child->left = node->left->right;
+    new_child->right = node;
+    _clean_node_child_ref(node);
+    if (parent->left == node) 
+        parent->left = new_child;
+    else
+        parent->right = new_child;  
+    
+    // Post-Conditions
+    assert(parent->left == new_child || parent->right == new_child);
+    assert(new_child->left != NULL && new_child->right == node);
 }
 
 static void avl_make_balanced(struct avl_node *node) {
     ; // TODO
+
 }
 
 /**
@@ -79,7 +169,9 @@ static void insert_node(struct avl_node **parent, struct avl_node *child){
     }
 }
 
-static void remove_mapping(struct paging_state *s, addr_t addr){
+// There is the edge case where removing a mapping will result in another
+// node being the root node instead. 
+static struct avl_node* remove_mapping(struct paging_state *s, addr_t addr){
     ; //TODO
 }
 
