@@ -2,9 +2,27 @@
 #include <stdlib.h>
 #include <assert.h>
 
+
+#define MAX(a,b) \
+   ({ __typeof__ (a) _a = (a); \
+       __typeof__ (b) _b = (b); \
+     _a > _b ? _a : _b; })
+
+#define MIN(a,b) \
+   ({ __typeof__ (a) _a = (a); \
+       __typeof__ (b) _b = (b); \
+     _a < _b ? _a : _b; })
+
+#define RIGHT_HEAVY(node) (node->right ? node->right->height : 0) \
+    > (node->left ? node->left->height : 0)
+#define LEFT_HEAVY(node) (node->left ? node->left->height : 0) \
+    > (node->right ? node->right->height : 0)
+           
 typedef unsigned int lpaddr_t;
 typedef unsigned int lvaddr_t;
 typedef unsigned int addr_t;
+
+
 
 typedef enum {
     V_TO_P, P_TO_V
@@ -21,7 +39,7 @@ static struct avl_node {
     struct avl_node *parent; 
     struct avl_node *left;
     struct avl_node *right;
-    signed short balance;
+    unsigned short height;
 };   
 
 // struct to store the paging status of a process
@@ -43,46 +61,133 @@ static void _clean_node_child_ref(struct avl_node *node) {
     assert(node->right == NULL);
 }
 
+static void avl_update_height(struct avl_node *node){
+    if(!node)
+        return;
+    
+    short lh = node->left ? node->left->height : 0;
+    short rh = node->right ? node->right->height : 0;
+    
+    node->height = MAX(lh, rh) + 1;
+}
+
+
 static void avl_rotate_left(struct avl_node *parent, struct avl_node *node) {
     // Pre-Conditions
     assert(node != NULL);
-    assert(parent->right == node || parent->left == node);
-    assert(node->right != NULL && node->left == NULL);
-    assert(node->right->right != NULL && node->right->left == NULL);
+    assert(!parent || parent->right == node || parent->left == node);
+    assert(node->right != NULL);
+    // assert(node->right->right != NULL && node->right->left == NULL);
 
     struct avl_node *new_child = node->right;
+    struct avl_node *temp = new_child->left;
     new_child->left = node;
-    _clean_node_child_ref(node); 
-    if (parent->left == node) 
-        parent->left = new_child;
-    else
-        parent->right = new_child;   
+    node->right = temp;
+    
+    if(temp)
+        temp->parent = node;
+    
+    new_child->parent = node->parent;
+    node->parent = new_child;
+    // _clean_node_child_ref(node);
+    avl_update_height(node);
+    avl_update_height(new_child);
 
+    if(parent){
+        if (parent->left == node) 
+            parent->left = new_child;
+        else
+            parent->right = new_child;   
+        avl_update_height(parent);
+    }
+    
     // Post-Conditions
-    assert(parent->left == new_child || parent->right == new_child);
-    assert(new_child->left == node && new_child->right != NULL);
+    assert(!parent || parent->left == new_child || parent->right == new_child);
+    assert(new_child->left == node);
 }
 
 static void avl_rotate_right(struct avl_node *parent, struct avl_node *node) {
     // Pre-Conditions
     assert(node != NULL);
-    assert(parent->left == node || parent->right == node);
-    assert(node->left != NULL && node->right == NULL);
-    assert(node->left->left != NULL && node->left->right == NULL);
+    assert(!parent || parent->left == node || parent->right == node);
+    assert(node->left != NULL);
+    // assert(node->left->left != NULL && node->left->right == NULL);
 
     struct avl_node *new_child = node->left;
+    struct avl_node *temp = new_child->right;
     new_child->right = node;
-    _clean_node_child_ref(node);
-    if (parent->left == node) 
-        parent->left = new_child;
-    else
-        parent->right = new_child;  
+    node->left = temp;
+    
+    if(temp)
+        temp->parent = node;
+    
+    new_child->parent = node->parent;
+    node->parent = new_child;
+    // _clean_node_child_ref(node);
+    avl_update_height(node);
+    avl_update_height(new_child);
+    
+    if(parent){
+        if (parent->left == node) 
+            parent->left = new_child;
+        else
+            parent->right = new_child;  
+        avl_update_height(parent);
+    }
 
     // Post-Conditions
-    assert(parent->left == new_child || parent->right == new_child);
-    assert(new_child->right == node && new_child->left != NULL);
+    assert(!parent || parent->left == new_child || parent->right == new_child);
+    assert(new_child->right == node);
 }
 
+static void avl_balance_node(struct avl_node *node) {
+    if(!node)
+        return;
+    
+    // get balance for node
+    short lh = node->left ? node->left->height : 0;
+    short rh = node->right ? node->right->height : 0;
+    short balance = lh-rh;
+    
+    // top points to the top-most node in the subtree
+    // (might change after balancing)
+    struct avl_node *top = node;
+    
+    short old_height = node->height;
+    avl_update_height(node);
+    
+    if(balance < -1){
+        // handle right subtree too high
+        struct avl_node *child = node->right;
+        
+        // check for right left case
+        if(LEFT_HEAVY(child))
+            avl_rotate_right(node, child);
+
+        top = node->right;
+
+        // right right case
+        avl_rotate_left(node->parent, node);
+    } else if(balance > 1){
+        // handle left subtree too high
+        struct avl_node *child = node->left;
+        
+        // check for left right case
+        if(RIGHT_HEAVY(child))
+            avl_rotate_left(node, child);
+
+        top = node->left;
+
+        // left left case
+        avl_rotate_right(node->parent, node);
+    }
+    
+    // if height has changed we recursive to parent
+    if(old_height != top->height)
+        avl_balance_node(top->parent);
+}
+
+/*
 static void avl_rotate_left_right(struct avl_node *parent, struct avl_node *node) {
     // Pre-Conditions
     assert(node != NULL);
@@ -124,11 +229,8 @@ static void avl_rotate_right_left(struct avl_node *parent, struct avl_node *node
     assert(parent->left == new_child || parent->right == new_child);
     assert(new_child->left != NULL && new_child->right == node);
 }
+*/
 
-static void avl_make_balanced(struct avl_node *node) {
-    ; // TODO
-
-}
 
 /**
  * Maybe better with iterative loop instead of recursion?
@@ -148,9 +250,10 @@ static struct avl_node* avl_traverse(struct avl_node *node, addr_t addr){
 
 // Why pointer to pointer? Complex semantics
 static void insert_node(struct avl_node **parent, struct avl_node *child){
-    if(!(*parent))
+    if(!(*parent)){
         *parent = child;
-    else {
+        avl_balance_node(child->parent);
+    } else {
         addr_t p_key = child->type == V_TO_P
             ? (*parent)->mapping->vaddr
             : (*parent)->mapping->paddr;
@@ -158,15 +261,16 @@ static void insert_node(struct avl_node **parent, struct avl_node *child){
         addr_t n_key = child->type == V_TO_P
             ? child->mapping->vaddr
             : child->mapping->paddr;
-        ;
+        
         child->parent = *parent;
-        if(p_key > n_key)
+        if(p_key > n_key){
             insert_node(&(*parent)->left, child);
-        else if(p_key < n_key)
+        } else if(p_key < n_key) {
             insert_node(&(*parent)->right, child);
+        }
         else
             // handle value already in tree
-            return;
+            ;
     }
 }
 
@@ -201,10 +305,6 @@ static void _insert_node(struct avl_node *parent, struct avl_node *child) {
     assert(child->left == NULL && child->right == NULL);
 }
 
-static void update_balance_factor(struct avl_node *node) {
-
-}
-
 // There is the edge case where removing a mapping will result in another
 // node being the root node instead. 
 // So the function should return an avl_node pointer to inform of the newest root node.
@@ -212,17 +312,17 @@ static struct avl_node* remove_mapping(struct paging_state *s, addr_t addr){
     ; //TODO
 }
 
-int _print_t(struct avl_node *tree, int is_left, int offset, int depth, char s[20][255])
+int _print_t(struct avl_node *tree, int is_left, int offset, int depth, char s[20][255*4])
 {
-    char b[20];
-    int width = 8;
+    char b[15];
+    int width = 12;
 
     if (!tree) return 0;
 
     struct addr_mapping *m = tree->mapping;
     addr_t key = tree->type == P_TO_V ? m->paddr : m->vaddr;
     addr_t val = tree->type == P_TO_V ? m->vaddr : m->paddr;
-    sprintf(b, "%02x -> %02x", key, val);
+    sprintf(b, "%02x -> %02x (%i)", key, val, tree->height);
 
     int left  = _print_t(tree->left,  1, offset,                depth + 1, s);
     int right = _print_t(tree->right, 0, offset + left + width, depth + 1, s);
@@ -252,7 +352,7 @@ int _print_t(struct avl_node *tree, int is_left, int offset, int depth, char s[2
 
 void print_t(struct avl_node *tree)
 {
-    char s[20][255];
+    char s[20][255*4];
     for (int i = 0; i < 20; i++)
         sprintf(s[i], "%80s", " ");
 
@@ -276,7 +376,7 @@ struct avl_node create_node(struct addr_mapping *m, avl_type type){
     n.parent = NULL;
     n.left = NULL;
     n.right = NULL;
-    n.balance = 0;
+    n.height = 1;
     return n;
 }
 
@@ -293,8 +393,15 @@ void insert_mapping(struct paging_state *s, lvaddr_t vaddr, lpaddr_t paddr){
         (struct avl_node *)malloc(sizeof(struct avl_node));
     *n_v2p = create_node(m, V_TO_P);
 
+    struct avl_node *new_root;
+
     insert_node(&s->phys_to_virt, n_p2v);
+    while((new_root = s->phys_to_virt->parent))
+        s->phys_to_virt = new_root;
+    
     insert_node(&s->virt_to_phys, n_v2p);
+    while((new_root = s->virt_to_phys->parent))
+        s->virt_to_phys = new_root;
 }
 
 int main() {
@@ -310,7 +417,7 @@ int main() {
     insert_mapping(&s, 0x14, 0x0C);
     insert_mapping(&s, 0xB4, 0x10);
     insert_mapping(&s, 0x28, 0x14);
-    insert_mapping(&s, 0x88, 0x18);
+    insert_mapping(&s, 0x24, 0x18);
 
     printf("phys to virt:\n");
     print_t(s.phys_to_virt);
