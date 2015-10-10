@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
- 
+
 typedef unsigned int lpaddr_t;
 typedef unsigned int lvaddr_t;
 typedef unsigned int addr_t;
@@ -9,7 +9,7 @@ typedef unsigned int addr_t;
 typedef enum {
     V_TO_P, P_TO_V
 } avl_type;
-    
+
 static struct addr_mapping {
     lpaddr_t vaddr;
     lpaddr_t paddr;
@@ -18,7 +18,7 @@ static struct addr_mapping {
 static struct avl_node {
     struct addr_mapping *mapping;
     avl_type type;
-    struct avl_node *parent;
+    struct avl_node *parent; 
     struct avl_node *left;
     struct avl_node *right;
     signed short balance;
@@ -28,13 +28,13 @@ static struct avl_node {
 static struct paging_state {
     struct avl_node *virt_to_phys;
     struct avl_node *phys_to_virt;
-    
+
 };
 
 static void _clean_node_child_ref(struct avl_node *node) {
     // Pre-Conditions
     assert(node != NULL);
-    
+
     node->left = NULL;
     node->right = NULL;
 
@@ -57,7 +57,7 @@ static void avl_rotate_left(struct avl_node *parent, struct avl_node *node) {
         parent->left = new_child;
     else
         parent->right = new_child;   
- 
+
     // Post-Conditions
     assert(parent->left == new_child || parent->right == new_child);
     assert(new_child->left == node && new_child->right != NULL);
@@ -77,7 +77,7 @@ static void avl_rotate_right(struct avl_node *parent, struct avl_node *node) {
         parent->left = new_child;
     else
         parent->right = new_child;  
- 
+
     // Post-Conditions
     assert(parent->left == new_child || parent->right == new_child);
     assert(new_child->right == node && new_child->left != NULL);
@@ -98,7 +98,7 @@ static void avl_rotate_left_right(struct avl_node *parent, struct avl_node *node
         parent->left = new_child;
     else
         parent->right = new_child;  
-    
+
     // Post-Conditions
     assert(parent->left == new_child || parent->right == new_child);
     assert(new_child->left == node && new_child->right != NULL);
@@ -119,7 +119,7 @@ static void avl_rotate_right_left(struct avl_node *parent, struct avl_node *node
         parent->left = new_child;
     else
         parent->right = new_child;  
-    
+
     // Post-Conditions
     assert(parent->left == new_child || parent->right == new_child);
     assert(new_child->left != NULL && new_child->right == node);
@@ -146,17 +146,18 @@ static struct avl_node* avl_traverse(struct avl_node *node, addr_t addr){
         return node;
 }
 
+// Why pointer to pointer? Complex semantics
 static void insert_node(struct avl_node **parent, struct avl_node *child){
     if(!(*parent))
         *parent = child;
     else {
         addr_t p_key = child->type == V_TO_P
-                     ? (*parent)->mapping->vaddr
-                     : (*parent)->mapping->paddr;
+            ? (*parent)->mapping->vaddr
+            : (*parent)->mapping->paddr;
 
         addr_t n_key = child->type == V_TO_P
-                     ? child->mapping->vaddr
-                     : child->mapping->paddr;
+            ? child->mapping->vaddr
+            : child->mapping->paddr;
         ;
         child->parent = *parent;
         if(p_key > n_key)
@@ -169,8 +170,44 @@ static void insert_node(struct avl_node **parent, struct avl_node *child){
     }
 }
 
+// Alternatve Node Insertion Function.
+// I presume Traverse is used to find the parent and then the child gets inserted once
+// its found.
+// So no need for traversing within insert_node?
+// Wrote this to propose Simpler Semantics. 
+static void _insert_node(struct avl_node *parent, struct avl_node *child) {
+    // Pre-Condition
+    assert(parent != NULL && child != NULL);
+    assert(parent->type == child->type);
+    
+    addr_t p_key = child->type == V_TO_P
+        ? parent->mapping->vaddr
+        : parent->mapping->paddr;
+
+    addr_t n_key = child->type == V_TO_P
+        ? child->mapping->vaddr
+        : child->mapping->paddr;
+   
+    // OPTIONAL 
+    child->parent = parent;
+    
+    if (p_key > n_key)
+        parent->left = child;
+    else
+        parent->right = child;
+
+    // Post-Condition
+    assert(parent->left == child || parent->right == child);
+    assert(child->left == NULL && child->right == NULL);
+}
+
+static void update_balance_factor(struct avl_node *node) {
+
+}
+
 // There is the edge case where removing a mapping will result in another
 // node being the root node instead. 
+// So the function should return an avl_node pointer to inform of the newest root node.
 static struct avl_node* remove_mapping(struct paging_state *s, addr_t addr){
     ; //TODO
 }
@@ -181,7 +218,7 @@ int _print_t(struct avl_node *tree, int is_left, int offset, int depth, char s[2
     int width = 8;
 
     if (!tree) return 0;
-    
+
     struct addr_mapping *m = tree->mapping;
     addr_t key = tree->type == P_TO_V ? m->paddr : m->vaddr;
     addr_t val = tree->type == P_TO_V ? m->vaddr : m->paddr;
@@ -242,12 +279,12 @@ struct avl_node create_node(struct addr_mapping *m, avl_type type){
     n.balance = 0;
     return n;
 }
-   
+
 void insert_mapping(struct paging_state *s, lvaddr_t vaddr, lpaddr_t paddr){
     struct addr_mapping *m =
         (struct addr_mapping *)malloc(sizeof(struct addr_mapping));
     *m = create_mapping(vaddr, paddr);
-    
+
     struct avl_node *n_p2v =
         (struct avl_node *)malloc(sizeof(struct avl_node));
     *n_p2v = create_node(m, P_TO_V);
@@ -255,17 +292,17 @@ void insert_mapping(struct paging_state *s, lvaddr_t vaddr, lpaddr_t paddr){
     struct avl_node *n_v2p =
         (struct avl_node *)malloc(sizeof(struct avl_node));
     *n_v2p = create_node(m, V_TO_P);
-    
+
     insert_node(&s->phys_to_virt, n_p2v);
     insert_node(&s->virt_to_phys, n_v2p);
 }
 
 int main() {
     struct paging_state s;
-    
+
     s.phys_to_virt = NULL;
     s.virt_to_phys = NULL;
-    
+
     // phys to virt mappings
     insert_mapping(&s, 0x10, 0x00);
     insert_mapping(&s, 0xA2, 0x04);
@@ -274,11 +311,11 @@ int main() {
     insert_mapping(&s, 0xB4, 0x10);
     insert_mapping(&s, 0x28, 0x14);
     insert_mapping(&s, 0x88, 0x18);
-    
+
     printf("phys to virt:\n");
     print_t(s.phys_to_virt);
-    
+
     printf("virt to phys:\n");
     print_t(s.virt_to_phys);
-    
+
 }
