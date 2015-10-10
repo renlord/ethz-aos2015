@@ -235,17 +235,22 @@ static void avl_rotate_right_left(struct avl_node *parent, struct avl_node *node
 /**
  * Maybe better with iterative loop instead of recursion?
  */
-static struct avl_node* avl_traverse(struct avl_node *node, addr_t addr){
+static struct avl_node* avl_lookup_aux(struct avl_node *node, addr_t addr){
     addr_t key = node->type == V_TO_P ? node->mapping->vaddr : node->mapping->paddr;
     if(!node)
         return NULL;
     else if(addr < key)
-        return avl_traverse(node->right, addr);
+        return avl_lookup_aux(node->right, addr);
     else if(addr > key)
-        return avl_traverse(node->left, addr);
+        return avl_lookup_aux(node->left, addr);
     else
         // addr == node->key
         return node;
+}
+
+addr_t avl_lookup(struct paging_state *s, addr_t addr){
+    struct avl_node *res = avl_lookup_aux(s->phys_to_virt, addr);
+    return res->mapping->vaddr;
 }
 
 // Why pointer to pointer? Complex semantics
@@ -404,25 +409,45 @@ void insert_mapping(struct paging_state *s, lvaddr_t vaddr, lpaddr_t paddr){
         s->virt_to_phys = new_root;
 }
 
-int main() {
+int lookup_array(int *i_arr, int elm){
+    if(elm == i_arr[0])
+        return elm;
+    else
+        return lookup_array(&i_arr[1], elm);
+}
+
+
+int main(int argc, char **argv) {
     struct paging_state s;
 
     s.phys_to_virt = NULL;
     s.virt_to_phys = NULL;
 
-    // phys to virt mappings
-    insert_mapping(&s, 0x10, 0x00);
-    insert_mapping(&s, 0xA2, 0x04);
-    insert_mapping(&s, 0x04, 0x08);
-    insert_mapping(&s, 0x14, 0x0C);
-    insert_mapping(&s, 0xB4, 0x10);
-    insert_mapping(&s, 0x28, 0x14);
-    insert_mapping(&s, 0x24, 0x18);
+    int no = atoi(argv[1]);
+    int cop[no];
+    int x;
+
+    for(int i = 0; i < no; i++){
+        printf("inserted %d\n", i);
+        scanf("%d", &x);
+        cop[i] = x;
+        insert_mapping(&s, x, x);
+    }
 
     printf("phys to virt:\n");
     print_t(s.phys_to_virt);
 
-    printf("virt to phys:\n");
-    print_t(s.virt_to_phys);
+    for(int i = 0; i < no; i++){
+        printf("looking up %d\n", cop[i]);
+        avl_lookup(&s, cop[i]);
+    }
 
+    //
+    // printf("phys to virt:\n");
+    // print_t(s.phys_to_virt);
+    //
+    // printf("virt to phys:\n");
+    // print_t(s.virt_to_phys);
+
+    
 }
