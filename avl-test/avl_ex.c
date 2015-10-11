@@ -17,6 +17,10 @@
     > (node->left ? node->left->height : 0)
 #define LEFT_HEAVY(node) (node->left ? node->left->height : 0) \
     > (node->right ? node->right->height : 0)
+
+#define true 1
+#define false 0
+#define bool short
            
 typedef unsigned long lpaddr_t;
 typedef unsigned long lvaddr_t;
@@ -362,6 +366,23 @@ void insert_mapping(struct paging_state *s, lvaddr_t vaddr, lpaddr_t paddr){
         s->virt_to_phys = new_root;
 }
 
+void clean_tree(struct avl_node *node, bool free_mapping){
+    struct avl_node *left = node->left;
+    struct avl_node *right = node->right;
+    
+    // only free the mappings if told to to avoid redundant freeing
+    if(free_mapping)
+        free(node->mapping);
+    
+    free(node);
+    
+    // recurse on each subtrees if existent
+    if(left)
+        clean_tree(left, free_mapping);
+    if(right)
+        clean_tree(right, free_mapping);
+}
+
 int main(int argc, char **argv) {
     struct paging_state s;
 
@@ -386,5 +407,8 @@ int main(int argc, char **argv) {
         // printf("looking up %lu\n", cop[i]);
         if(verbose)
             printf("Found %lu (%i/%i)\n", res,  i, no);
-    }    
+    }
+    
+    clean_tree(s.virt_to_phys, false);
+    clean_tree(s.phys_to_virt, true);
 }
