@@ -18,11 +18,9 @@
 #define LEFT_HEAVY(node) (node->left ? node->left->height : 0) \
     > (node->right ? node->right->height : 0)
            
-typedef unsigned int lpaddr_t;
-typedef unsigned int lvaddr_t;
-typedef unsigned int addr_t;
-
-
+typedef unsigned long lpaddr_t;
+typedef unsigned long lvaddr_t;
+typedef unsigned long addr_t;
 
 typedef enum {
     V_TO_P, P_TO_V
@@ -235,17 +233,22 @@ static void avl_rotate_right_left(struct avl_node *parent, struct avl_node *node
 /**
  * Maybe better with iterative loop instead of recursion?
  */
-static struct avl_node* avl_traverse(struct avl_node *node, addr_t addr){
+static struct avl_node* avl_lookup_aux(struct avl_node *node, addr_t addr){
     addr_t key = node->type == V_TO_P ? node->mapping->vaddr : node->mapping->paddr;
     if(!node)
         return NULL;
-    else if(addr < key)
-        return avl_traverse(node->right, addr);
     else if(addr > key)
-        return avl_traverse(node->left, addr);
+        return avl_lookup_aux(node->right, addr);
+    else if(addr < key)
+        return avl_lookup_aux(node->left, addr);
     else
         // addr == node->key
         return node;
+}
+
+addr_t avl_lookup(struct paging_state *s, addr_t addr){
+    struct avl_node *res = avl_lookup_aux(s->phys_to_virt, addr);
+    return res->mapping->vaddr;
 }
 
 // Why pointer to pointer? Complex semantics
@@ -314,15 +317,15 @@ static struct avl_node* remove_mapping(struct paging_state *s, addr_t addr){
 
 int _print_t(struct avl_node *tree, int is_left, int offset, int depth, char s[20][255*4])
 {
-    char b[15];
-    int width = 12;
+    char b[32];
+    int width = 24;
 
     if (!tree) return 0;
 
     struct addr_mapping *m = tree->mapping;
     addr_t key = tree->type == P_TO_V ? m->paddr : m->vaddr;
     addr_t val = tree->type == P_TO_V ? m->vaddr : m->paddr;
-    sprintf(b, "%02x -> %02x (%i)", key, val, tree->height);
+    sprintf(b, "%08lx -> %08lx (%i)", key, val, tree->height);
 
     int left  = _print_t(tree->left,  1, offset,                depth + 1, s);
     int right = _print_t(tree->right, 0, offset + left + width, depth + 1, s);
@@ -404,25 +407,30 @@ void insert_mapping(struct paging_state *s, lvaddr_t vaddr, lpaddr_t paddr){
         s->virt_to_phys = new_root;
 }
 
-int main() {
+int main(int argc, char **argv) {
     struct paging_state s;
 
     s.phys_to_virt = NULL;
     s.virt_to_phys = NULL;
 
-    // phys to virt mappings
-    insert_mapping(&s, 0x10, 0x00);
-    insert_mapping(&s, 0xA2, 0x04);
-    insert_mapping(&s, 0x04, 0x08);
-    insert_mapping(&s, 0x14, 0x0C);
-    insert_mapping(&s, 0xB4, 0x10);
-    insert_mapping(&s, 0x28, 0x14);
-    insert_mapping(&s, 0x24, 0x18);
+    int verbose = atoi(argv[1]);
+    int no = atoi(argv[2]);
+    long cop[no];
+    long x;
 
-    printf("phys to virt:\n");
-    print_t(s.phys_to_virt);
+    for(int i = 0; i < no; i++){
+        scanf("%lu", &x);
+        cop[i] = x;
+        insert_mapping(&s, x, x);
+        if(verbose)
+            printf("inserted %lu\n", x);
+    }
 
-    printf("virt to phys:\n");
-    print_t(s.virt_to_phys);
-
+    for(int i = 0; i < no; i++){
+        addr_t res = avl_lookup(&s, cop[i]);
+        // printf("looking up %lu\n", cop[i]);
+        if(verbose)
+            printf("Found %lu (%i/%i)\n", res,  i, no);
+    }
+    
 }
