@@ -185,51 +185,6 @@ static void avl_balance_node(struct avl_node *node) {
         avl_balance_node(top->parent);
 }
 
-/*
-static void avl_rotate_left_right(struct avl_node *parent, struct avl_node *node) {
-    // Pre-Conditions
-    assert(node != NULL);
-    assert(parent->left == node || parent->right == node);
-    assert(node->right != NULL && node->left == NULL);
-    assert(node->right->left != NULL && node->right->right == NULL);
-
-    struct avl_node *new_child = node->right;
-    new_child->left = node;
-    new_child->right = node->right->left;
-    _clean_node_child_ref(node);
-    if (parent->left == node) 
-        parent->left = new_child;
-    else
-        parent->right = new_child;  
-
-    // Post-Conditions
-    assert(parent->left == new_child || parent->right == new_child);
-    assert(new_child->left == node && new_child->right != NULL);
-}
-
-static void avl_rotate_right_left(struct avl_node *parent, struct avl_node *node) {
-    // Pre-Conditions
-    assert(node != NULL);
-    assert(parent->left == node || parent->right == node);
-    assert(node->left != NULL && node->right == NULL);
-    assert(node->left->left == NULL && node->left->right != NULL);
-
-    struct avl_node *new_child = node->left;
-    new_child->left = node->left->right;
-    new_child->right = node;
-    _clean_node_child_ref(node);
-    if (parent->left == node) 
-        parent->left = new_child;
-    else
-        parent->right = new_child;  
-
-    // Post-Conditions
-    assert(parent->left == new_child || parent->right == new_child);
-    assert(new_child->left != NULL && new_child->right == node);
-}
-*/
-
-
 /**
  * Maybe better with iterative loop instead of recursion?
  */
@@ -431,6 +386,5 @@ int main(int argc, char **argv) {
         // printf("looking up %lu\n", cop[i]);
         if(verbose)
             printf("Found %lu (%i/%i)\n", res,  i, no);
-    }
-    
+    }    
 }
