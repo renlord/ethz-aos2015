@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <assert.h>
 
-
 #define MAX(a,b) \
     ({ __typeof__ (a) _a = (a); \
      __typeof__ (b) _b = (b); \
@@ -168,6 +167,14 @@ addr_t avl_lookup(struct paging_state *s, addr_t addr) {
     return res->mapping->vaddr;
 }
 
+static struct addr_mapping *avl_lookup_mapping(struct paging_state *s, 
+    avl_type type, addr_t addr) 
+{
+    struct avl_node *root = (type == P_TO_V) ? *(s->phys_to_virt) : *(s->virt_to_phys);
+    struct avl_node *res = avl_lookup_aux(root, type, addr);
+    return res->mapping;
+}
+
 /**
  * insert node
  *
@@ -176,10 +183,9 @@ addr_t avl_lookup(struct paging_state *s, addr_t addr) {
  * YOUR RESPONSIBILITY to provide correct tree and correct `key_type` or everything will
  * FUCK UP.
  * 
- * // cur, pointer of the current node.
+ * // parent, pointer to pointer to current node.
  * // key_type, the key type to use, either P_TO_V or V_TO_P
  * // child, pointer to the child node.
- * // root, pointer to the root node.
  *
  * CAVEATS:
  * Assumes that lookup has been performed and confirm that the address has not been mapped.
@@ -218,23 +224,82 @@ static void insert_node(struct avl_node **parent,
     }
 }
 
-// There is the edge case where removing a mapping will result in another
-// node being the root node instead. 
-// So the function should return an avl_node pointer to inform of the newest root node.
-static struct avl_node *remove_mapping(struct paging_state *s, lpaddr_t addr){
-    //TODO
+static struct avl_node *find_min_node(struct avl_node *node, avl_type type, addr_t key) 
+{
+    assert( node != NULL );
+    while( node->left != NULL ) {
+        node = node->left; 
+    }
+    assert( node != NULL );
+    return node;
+}
+
+static void remove_node(struct avl_node **parent, avl_type type, struct addr_mapping *addr) 
+{
+    assert(parent != NULL && *parent != NULL);
+
+    struct avl_node *node = *parent;
+    struct avl_node *successor;
+
+    addr_t in_value;
+    addr_t key;
+
+    in_value = type == P_TO_V ? node->mapping->paddr : node->mapping->vaddr;
+    key = type == P_TO_V ? addr->paddr : addr->vaddr; 
+
+    if ( key == in_value ) {
+        // No Child Case 
+        if (node->left == NULL && node->right == NULL) {
+            *parent = NULL;
+            free(node);
+        }
+        // Single Child Cases            
+        else if (node->left != NULL && node->right == NULL) { 
+            *parent = node->left;
+            free(node);
+        }
+        else if (node->left == NULL && node->right != NULL) {
+            *parent = node->right;
+            free(node);
+        }
+        // Two Children Case
+        else 
+        {
+            successor = find_min_node(node->right, type, key);
+            node->mapping->paddr = successor->mapping->paddr;
+            node->mapping->vaddr = successor->mapping->vaddr;
+            remove_node(&(node->right), type, successor->mapping);
+        }
+        // de-allocates and purged from memory
+        return;
+    }
+ 
+    if ( key > in_value ) {
+        remove_node(&(node->right), type, addr);
+        avl_update_height(node);
+        avl_balance_node(parent);
+    } else if ( key < in_value ) {
+        remove_node(&(node->left), type, addr);
+        avl_update_height(node);
+        avl_balance_node(parent);
+    } else {
+        printf("Error. Wrongful Traversal. Remove Node Fail\n");
+    }
+
+    assert(parent != NULL); 
+}
+
+static void remove_mapping(struct paging_state *s, avl_type type, addr_t addr)
+{
     // Pre-Conditions 
     assert(s != NULL && s->virt_to_phys != NULL && s->phys_to_virt != NULL);
-
-    lvaddr_t virtualKey = avl_lookup(s, (addr_t) addr); 
-
+    struct avl_node *p2v_tree = *(s->phys_to_virt);
+    struct avl_node *v2p_tree = *(s->virt_to_phys);
+    struct addr_mapping *target = avl_lookup_mapping(s, type, addr);
     // Remove from P_TO_V
-
-
+    remove_node(s->phys_to_virt, P_TO_V, target);    
     // Remove from V_TO_P  
-
-    // Post-Conditions
-
+    remove_node(s->virt_to_phys, V_TO_P, target);
 }
 
 int _print_t(struct avl_node *tree, avl_type tree_type, int is_left, int offset, int depth, char s[20][255*4])
@@ -370,6 +435,17 @@ int main(int argc, char **argv) {
     if (verbose)
         printf("FOUND TRACE COMPLETE\n");
 
-    clean_tree(*(s->virt_to_phys), false);
-    clean_tree(*(s->phys_to_virt), true);
+    for (int i = 0; i < no; i++) {
+        if (verbose)
+            printf("Removing %lu\n", cop[i]);
+        remove_mapping(s, cop[i], cop[i]);
+        if (verbose)
+            printf("Removed %lu\n", cop[i]);
+    }
+
+    if (verbose)
+        printf("Testing Complete\n");
+
+    //clean_tree(*(s->virt_to_phys), false);
+    //clean_tree(*(s->phys_to_virt), true);
 }
