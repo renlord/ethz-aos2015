@@ -15,7 +15,7 @@ int main(int argc, char **argv) {
     int verbose = atoi(argv[1]);
     int no = atoi(argv[2]);
     
-    long unsigned test[no];
+    long unsigned *test = malloc(no*sizeof(long unsigned));
     
     for(int i = 0; i < no; i++){
         scanf("%lu", test+i);
@@ -27,6 +27,7 @@ int main(int argc, char **argv) {
         long unsigned res = lookup_array(test, test[i]);
         if(verbose)
             printf("Found %lu (%i/%i)\n", res,  i, no);
-
     }
+    
+    free(test);
 }
