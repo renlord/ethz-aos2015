@@ -21,6 +21,12 @@
 #include <stdio.h>
 #include <string.h>
 
+// Copied from lib/barrelfish/threads.c
+#define EXC_STACK_ALIGNMENT (sizeof(uint64_t) * 2)
+
+// Our exception stack size
+#define EXC_STACK_SIZE 256*EXC_STACK_ALIGNMENT
+
 static struct paging_state current;
 
 /**
@@ -44,14 +50,101 @@ static errval_t arml2_alloc(struct capref *ret)
     return SYS_ERR_OK;
 }
 
+
+errval_t avl_insert_node(struct paging_state *st, void **buf, size_t bytes);
+
+errval_t avl_insert_node(struct paging_state *st, void **buf, size_t bytes)
+{
+    lvaddr_t addr = st->addrs[st->next_free];
+    *((lvaddr_t*)buf) = addr;
+
+    st->addrs[++st->next_free] = addr+bytes;
+    debug_printf("next_addr changed from 0x%08x to 0x%08x\n",
+                 addr, st->addrs[st->next_free]);
+    return SYS_ERR_OK;
+}
+
+
+uint32_t stack[EXC_STACK_SIZE];
+
+void page_fault_handler(enum exception_type type, int subtype,
+                        void *addr, arch_registers_state_t *regs,
+                        arch_registers_fpu_state_t *fpuregs);
+
 // TODO: implement page fault handler that installs frames when a page fault
 // occurs and keeps track of the virtual address space.
+void page_fault_handler(enum exception_type type, int subtype,
+                        void *addr, arch_registers_state_t *regs,
+                        arch_registers_fpu_state_t *fpuregs)
+{
+    debug_printf("Hit exception handler for address 0x%08x\n", (lpaddr_t) addr);
+     
+    if (type != EXCEPT_PAGEFAULT){
+        // TODO handle other pagefaults
+        return;
+    }
+
+    // primitive way of finding next address
+    int i = 0;
+    while (current.addrs[i++] != (lvaddr_t)addr);
+    size_t bytes = current.addrs[i] - current.addrs[i-1];
+
+    debug_printf("current.addrs[i]: 0x%08x, current.addrs[i-1]: 0x%08x\n",
+                current.addrs[i],current.addrs[i-1]);
+    
+    // allocate L2 pagetable capability
+    struct capref l2_cap;
+    arml2_alloc(&l2_cap);
+    debug_printf("l2_cap allocated\n");
+
+    // allocate frame capability
+    debug_printf("allocating frame capability for addr 0x%08x with size 0x%08x\n",
+                 addr, bytes);
+    struct capref frame_cap;
+    size_t retsize;
+    frame_alloc(&frame_cap, bytes, &retsize);
+    debug_printf("bytes: %d, retsize: %d\n", bytes, retsize);
+
+    // get relevant offsets
+    cslot_t l1_slot = ARM_L1_OFFSET(addr);
+    cslot_t l2_slot = ARM_L2_OFFSET(addr);
+    uint64_t off = ARM_PAGE_OFFSET(addr);
+    
+    // insert frame in L2 pagetable
+    errval_t err = vnode_map(l2_cap, frame_cap, l2_slot,
+                             VREGION_FLAGS_READ_WRITE, off, 1);
+
+    if (err != SYS_ERR_OK){
+        debug_printf("Could not insert frame in L2 pagetable");
+    }
+
+    // insert L2 pagetable in L1 pagetable
+    err = vnode_map(current.l1_cap, l2_cap, l1_slot,
+                    VREGION_FLAGS_READ_WRITE, 0, 1);
+
+    if (err != SYS_ERR_OK){
+        debug_printf("Could not insert L2 pagetable in L1 pagetable");
+    }
+
+
+}
+
+
 
 errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
         struct capref pdir)
 {
     debug_printf("paging_init_state\n");
+    
     // TODO: implement state struct initialization
+    st->l1_cap = pdir;
+        
+    struct avl_node root_v2p = {{start_vaddr, 0, 0}};
+    
+    st->root_v2p = root_v2p;
+    st->addrs[0] = start_vaddr;
+    st->next_free = 0;
+    
     return SYS_ERR_OK;
 }
 
@@ -60,11 +153,27 @@ errval_t paging_init(void)
 {
     debug_printf("paging_init\n");
     // TODO: initialize self-paging handler
+    
     // TIP: use thread_set_exception_handler() to setup a page fault handler
     // TIP: Think about the fact that later on, you'll have to make sure that
     // you can handle page faults in any thread of a domain.
+    
+    void *old_stack_base, *old_stack_top;
+    thread_set_exception_handler(page_fault_handler, NULL,
+                                 stack, &stack[EXC_STACK_SIZE],
+                                 &old_stack_base, &old_stack_top);
+
+    printf("From paging_init: 0x%08x\n", page_fault_handler);
+    printf("Old stack base: 0x%08x, old stack top: 0x%08x\n", old_stack_base, old_stack_top);
     // TIP: it might be a good idea to call paging_init_state() from here to
     // avoid code duplication.
+    struct capref l1_cap = {
+        .cnode = cnode_page,
+        .slot = 0,
+    };
+
+    paging_init_state(&current, 0, l1_cap);
+
     set_current_paging_state(&current);
     return SYS_ERR_OK;
 }
@@ -142,7 +251,38 @@ errval_t paging_region_unmap(struct paging_region *pr, lvaddr_t base, size_t byt
  */
 errval_t paging_alloc(struct paging_state *st, void **buf, size_t bytes)
 {
-    *buf = NULL;
+    // find virtual address from AVL-tree
+    errval_t err = avl_insert_node(st, buf, bytes);
+    if (err_is_fail(err)){
+        return err;
+    }
+    
+    // 1. Allocate slot for l2-pt capability, if not already present
+    // debug_printf("Step 1...");
+    // struct capref l2_cap;
+    // arml2_alloc(&l2_cap);
+    // debug_printf("Done! cap addr: 0x%08x\n", get_cap_addr(l2_cap));
+    
+    // 2. Store address in L1-pt
+    // debug_printf("Step 2...");
+    // cslot_t l1_slot = 0; // TODO extract from buf-address
+    // debug_printf("st->l1_cap addr: 0x%08x\n", get_cap_addr(st->l1_cap));
+    // err = vnode_map(st->l1_cap, l2_cap, l1_slot,
+    //                 VREGION_FLAGS_READ_WRITE, 0, 1); // TODO last arg maybe 0?
+    // debug_printf("Done!\n");
+    
+    /*
+    // 3. Allocate blank frame
+    struct capref f_cap;
+    frame_alloc(&f_cap, 0, NULL);
+    
+    // 4. Insert blank entry in l1-table
+    capaddr_t l2_slot = NULL; // TODO extract from buf_address
+    uint64_t off = 0; // TODO extract from buf_address
+    err = vnode_map(l2_cap, f_cap, l2_slot,
+                    VREGION_FLAGS_READ_WRITE, off, 1); // TODO last arg maybe 0?
+    */
+                    
     return SYS_ERR_OK;
 }
 
@@ -158,6 +298,8 @@ errval_t paging_map_frame_attr(struct paging_state *st, void **buf,
     if (err_is_fail(err)) {
         return err;
     }
+
+
     return paging_map_fixed_attr(st, (lvaddr_t)(*buf), frame, bytes, flags);
 }
 

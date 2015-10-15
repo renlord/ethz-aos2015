@@ -46,11 +46,26 @@ typedef int paging_flags_t;
 #define VREGION_FLAGS_READ_WRITE_MPB \
     (VREGION_FLAGS_READ | VREGION_FLAGS_WRITE | VREGION_FLAGS_MPB)
 
-// struct to store the paging status of a process
-struct paging_state {
-    // TODO: add struct members to keep track of the page tables etc
+
+
+struct mapping {
+    lpaddr_t paddr;
+    lvaddr_t vaddr;
+    size_t size;
 };
 
+struct avl_node {
+    struct mapping map;
+};
+
+// struct to store the paging status of a process
+struct paging_state {
+    struct capref l1_cap;
+    struct avl_node root_p2v;
+    struct avl_node root_v2p;
+    lvaddr_t addrs[100];
+    int next_free;
+};
 
 struct thread;
 /// Initialize paging_state struct
@@ -98,6 +113,7 @@ errval_t paging_alloc(struct paging_state *st, void **buf, size_t bytes);
 errval_t paging_map_frame_attr(struct paging_state *st, void **buf,
                     size_t bytes, struct capref frame,
                     int flags, void *arg1, void *arg2);
+                    
 /// Map user provided frame at user provided VA with given flags.
 errval_t paging_map_fixed_attr(struct paging_state *st, lvaddr_t vaddr,
                 struct capref frame, size_t bytes, int flags);
