@@ -50,6 +50,7 @@ Header *morecore(unsigned nu)
     up = (Header *)sys_morecore_alloc(nb, &nb);
     if (up == NULL) {
         return NULL;
+    printf("after if\n");
     }
     assert(nb % sizeof(Header) == 0);
     up->s.size = nb / sizeof(Header);

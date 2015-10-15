@@ -55,6 +55,11 @@ errval_t avl_insert_node(struct paging_state *st, void **buf, size_t bytes);
 
 errval_t avl_insert_node(struct paging_state *st, void **buf, size_t bytes)
 {
+    printf("checkpoint 1, st: 0x%08x\n", st);
+    if(!st)
+        return SYS_ERR_OK;
+    
+    printf("checkpoint 2\n", st);
     lvaddr_t addr = st->addrs[st->next_free];
     *((lvaddr_t*)buf) = addr;
 
@@ -138,7 +143,7 @@ errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
     
     // TODO: implement state struct initialization
     st->l1_cap = pdir;
-        
+    current = *st;
     struct avl_node root_v2p = {{start_vaddr, 0, 0}};
     
     st->root_v2p = root_v2p;
@@ -153,6 +158,7 @@ errval_t paging_init(void)
 {
     debug_printf("paging_init\n");
     // TODO: initialize self-paging handler
+    
     
     // TIP: use thread_set_exception_handler() to setup a page fault handler
     // TIP: Think about the fact that later on, you'll have to make sure that
@@ -173,7 +179,7 @@ errval_t paging_init(void)
     };
 
     paging_init_state(&current, 0, l1_cap);
-
+    
     set_current_paging_state(&current);
     return SYS_ERR_OK;
 }
@@ -181,6 +187,7 @@ errval_t paging_init(void)
 void paging_init_onthread(struct thread *t)
 {
     // TODO: setup exception handler for thread `t'.
+    t->exception_handler = page_fault_handler;
 }
 
 /**
@@ -251,37 +258,15 @@ errval_t paging_region_unmap(struct paging_region *pr, lvaddr_t base, size_t byt
  */
 errval_t paging_alloc(struct paging_state *st, void **buf, size_t bytes)
 {
+    debug_printf("paging_alloc called\n");
+    
+    // st = st ? &current : st;
+    current = *st;
     // find virtual address from AVL-tree
     errval_t err = avl_insert_node(st, buf, bytes);
     if (err_is_fail(err)){
         return err;
     }
-    
-    // 1. Allocate slot for l2-pt capability, if not already present
-    // debug_printf("Step 1...");
-    // struct capref l2_cap;
-    // arml2_alloc(&l2_cap);
-    // debug_printf("Done! cap addr: 0x%08x\n", get_cap_addr(l2_cap));
-    
-    // 2. Store address in L1-pt
-    // debug_printf("Step 2...");
-    // cslot_t l1_slot = 0; // TODO extract from buf-address
-    // debug_printf("st->l1_cap addr: 0x%08x\n", get_cap_addr(st->l1_cap));
-    // err = vnode_map(st->l1_cap, l2_cap, l1_slot,
-    //                 VREGION_FLAGS_READ_WRITE, 0, 1); // TODO last arg maybe 0?
-    // debug_printf("Done!\n");
-    
-    /*
-    // 3. Allocate blank frame
-    struct capref f_cap;
-    frame_alloc(&f_cap, 0, NULL);
-    
-    // 4. Insert blank entry in l1-table
-    capaddr_t l2_slot = NULL; // TODO extract from buf_address
-    uint64_t off = 0; // TODO extract from buf_address
-    err = vnode_map(l2_cap, f_cap, l2_slot,
-                    VREGION_FLAGS_READ_WRITE, off, 1); // TODO last arg maybe 0?
-    */
                     
     return SYS_ERR_OK;
 }

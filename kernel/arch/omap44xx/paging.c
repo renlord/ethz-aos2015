@@ -353,7 +353,6 @@ caps_map_l1(struct capability* dest,
     union arm_l1_entry* entry = (union arm_l1_entry*)dest_lvaddr + (slot * ARM_L1_SCALE);
 
     for (int i = 0; i < 4; i++) {
-        break; // FIXME
         if (entry[i].page_table.type != L1_TYPE_INVALID_ENTRY) {
             panic("Remapping valid page table.");
         }
