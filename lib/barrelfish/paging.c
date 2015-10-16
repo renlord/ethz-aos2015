@@ -27,6 +27,17 @@
 // Our exception stack size
 #define EXC_STACK_SIZE 256*EXC_STACK_ALIGNMENT
 
+#define V_OFFSET 1UL << 25
+#define MAX(a,b) \
+    ({ __typeof__ (a) _a = (a); \
+     __typeof__ (b) _b = (b); \
+     _a > _b ? _a : _b; })
+         
+#define MIN(a,b) \
+    ({ __typeof__ (a) _a = (a); \
+     __typeof__ (b) _b = (b); \
+     _a < _b ? _a : _b; })
+         
 static struct paging_state current;
 
 /**
@@ -55,17 +66,21 @@ errval_t avl_insert_node(struct paging_state *st, void **buf, size_t bytes);
 
 errval_t avl_insert_node(struct paging_state *st, void **buf, size_t bytes)
 {
-    printf("checkpoint 1, st: 0x%08x\n", st);
     if(!st)
         return SYS_ERR_OK;
-    
-    printf("checkpoint 2\n", st);
+
     lvaddr_t addr = st->addrs[st->next_free];
     *((lvaddr_t*)buf) = addr;
 
-    st->addrs[++st->next_free] = addr+bytes;
-    debug_printf("next_addr changed from 0x%08x to 0x%08x\n",
+    st->sizes[st->next_free] = bytes;
+    st->addrs[++st->next_free] = ROUND_UP(addr+bytes, BASE_PAGE_SIZE);
+
+    debug_printf("in avl_insert_node for st 0x%08x\n", st);
+    debug_printf("addrs changed from 0x%08x to 0x%08x\n",
                  addr, st->addrs[st->next_free]);
+    debug_printf("next_free incremented from %d to %d\n",
+                 st->next_free-1, st->next_free);
+
     return SYS_ERR_OK;
 }
 
@@ -82,55 +97,74 @@ void page_fault_handler(enum exception_type type, int subtype,
                         void *addr, arch_registers_state_t *regs,
                         arch_registers_fpu_state_t *fpuregs)
 {
-    debug_printf("Hit exception handler for address 0x%08x\n", (lpaddr_t) addr);
+    debug_printf("\n\nHIT exception handler for address 0x%08x\n", (lpaddr_t) addr);
+    debug_printf("Current: 0x%08x\n", &current);
      
     if (type != EXCEPT_PAGEFAULT){
         // TODO handle other pagefaults
         return;
     }
-
-    // primitive way of finding next address
-    int i = 0;
-    while (current.addrs[i++] != (lvaddr_t)addr);
-    size_t bytes = current.addrs[i] - current.addrs[i-1];
-
-    debug_printf("current.addrs[i]: 0x%08x, current.addrs[i-1]: 0x%08x\n",
-                current.addrs[i],current.addrs[i-1]);
+    errval_t err;
     
-    // allocate L2 pagetable capability
-    struct capref l2_cap;
-    arml2_alloc(&l2_cap);
-    debug_printf("l2_cap allocated\n");
+    // cast for easier calculations
+    lvaddr_t vaddr = (lvaddr_t)addr;
+    
+    // primitive way of finding next address
+    size_t bytes = 0;
+    for (uint32_t i = 0; i < current.next_free; i++){
+        debug_printf("checking if 0x%08x is between 0x%08x and 0x%08x\n",
+                     vaddr, current.addrs[i], current.addrs[i]+current.sizes[i]-1);
+        if(current.addrs[i] <= vaddr &&
+           current.addrs[i] + current.sizes[i] > vaddr){
+               bytes = current.sizes[i];
+        }
+    }
+    
+    if (bytes == 0) {
+        debug_printf("Did not find address!!\n");
+        return;
+    }
 
-    // allocate frame capability
-    debug_printf("allocating frame capability for addr 0x%08x with size 0x%08x\n",
-                 addr, bytes);
+    // relevant pagetable slots
+    cslot_t l1_slot = ARM_L1_OFFSET(vaddr);
+    cslot_t l2_slot = ARM_L2_OFFSET(vaddr);
+    debug_printf("l1_slot: %d, l2_slot: %d\n", l1_slot, l2_slot);
+
+    // check if we have l2 capabilities and request if not
+    struct capref l2_cap;
+    if(!capref_is_null(current.l2_caps[l1_slot])) {
+        debug_printf("L2-cap already acquired.\n");
+        l2_cap = current.l2_caps[l1_slot];
+    } else {        
+        debug_printf("Allocating new l2-cap.\n");
+        arml2_alloc(&l2_cap);
+    
+        // insert L2 pagetable in L1 pagetable
+        err = vnode_map(current.l1_cap, l2_cap, l1_slot,
+                        VREGION_FLAGS_READ_WRITE, 0, 1);
+    
+        if (err != SYS_ERR_OK){
+            debug_printf("Could not insert L2 pagetable in L1 pagetable\n");
+            return;
+        }
+    
+        current.l2_caps[l1_slot] = l2_cap;
+    }
+    
+    // allocate frame capabilities
     struct capref frame_cap;
     size_t retsize;
-    frame_alloc(&frame_cap, bytes, &retsize);
-    debug_printf("bytes: %d, retsize: %d\n", bytes, retsize);
-
-    // get relevant offsets
-    cslot_t l1_slot = ARM_L1_OFFSET(addr);
-    cslot_t l2_slot = ARM_L2_OFFSET(addr);
-    uint64_t off = ARM_PAGE_OFFSET(addr);
+    frame_alloc(&frame_cap, BASE_PAGE_SIZE, &retsize);
+    debug_printf("allocated bytes: %d, retsize: %d\n",
+                 BASE_PAGE_SIZE, retsize);
     
     // insert frame in L2 pagetable
-    errval_t err = vnode_map(l2_cap, frame_cap, l2_slot,
-                             VREGION_FLAGS_READ_WRITE, off, 1);
+    err = vnode_map(l2_cap, frame_cap, l2_slot,
+                    VREGION_FLAGS_READ_WRITE, 0, 1);
 
     if (err != SYS_ERR_OK){
         debug_printf("Could not insert frame in L2 pagetable");
     }
-
-    // insert L2 pagetable in L1 pagetable
-    err = vnode_map(current.l1_cap, l2_cap, l1_slot,
-                    VREGION_FLAGS_READ_WRITE, 0, 1);
-
-    if (err != SYS_ERR_OK){
-        debug_printf("Could not insert L2 pagetable in L1 pagetable");
-    }
-
 
 }
 
@@ -141,6 +175,8 @@ errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
 {
     debug_printf("paging_init_state\n");
     
+    start_vaddr = MAX(start_vaddr, V_OFFSET);
+    
     // TODO: implement state struct initialization
     st->l1_cap = pdir;
     current = *st;
@@ -149,6 +185,10 @@ errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
     st->root_v2p = root_v2p;
     st->addrs[0] = start_vaddr;
     st->next_free = 0;
+    
+    for(uint32_t i = 0; i < ARM_L1_MAX_ENTRIES; i++){
+        st->l2_caps[i] = NULL_CAP;
+    }
     
     return SYS_ERR_OK;
 }
@@ -177,6 +217,8 @@ errval_t paging_init(void)
         .cnode = cnode_page,
         .slot = 0,
     };
+
+    printf("l1_cap addr: 0x%08x\n", get_cap_addr(l1_cap));
 
     paging_init_state(&current, 0, l1_cap);
     
@@ -259,9 +301,13 @@ errval_t paging_region_unmap(struct paging_region *pr, lvaddr_t base, size_t byt
 errval_t paging_alloc(struct paging_state *st, void **buf, size_t bytes)
 {
     debug_printf("paging_alloc called\n");
-    
-    // st = st ? &current : st;
+    if(!st){
+        debug_printf("arg st is NULL");
+        return SYS_ERR_OK;
+    }
+        
     current = *st;
+
     // find virtual address from AVL-tree
     errval_t err = avl_insert_node(st, buf, bytes);
     if (err_is_fail(err)){

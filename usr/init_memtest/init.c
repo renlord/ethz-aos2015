@@ -26,6 +26,7 @@ struct bootinfo *bi;
 
 int main(int argc, char *argv[])
 {
+
     printf("init: invoked as:");
     for (int i = 0; i < argc; i++) {
         printf(" %s", argv[i]);
@@ -43,7 +44,7 @@ int main(int argc, char *argv[])
         DEBUG_ERR(err, "Failed to init ram alloc");
         abort();
     }
-
+   
     char *static_malloc_buf = malloc(MALLOC_BUFSIZE);
     for (int i = 0; i < MALLOC_BUFSIZE; i++){
         static_malloc_buf[i] = i%255;

@@ -60,11 +60,13 @@ struct avl_node {
 
 // struct to store the paging status of a process
 struct paging_state {
+    lvaddr_t next_free;
     struct capref l1_cap;
     struct avl_node root_p2v;
     struct avl_node root_v2p;
     lvaddr_t addrs[100];
-    int next_free;
+    lvaddr_t sizes[100];
+    struct capref l2_caps[ARM_L1_MAX_ENTRIES];
 };
 
 struct thread;

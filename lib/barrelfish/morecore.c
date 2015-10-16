@@ -62,7 +62,8 @@ static void *morecore_alloc(size_t bytes, size_t *retbytes)
         aligned_bytes = 0;
     }
     *retbytes = aligned_bytes;
-    paging_alloc(NULL, ret, bytes);
+    // void *ret;
+    // paging_alloc(get_current_paging_state(), &ret, bytes);
     return ret;
 }
 
