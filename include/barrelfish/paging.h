@@ -46,7 +46,7 @@ typedef int paging_flags_t;
 #define VREGION_FLAGS_READ_WRITE_MPB \
     (VREGION_FLAGS_READ | VREGION_FLAGS_WRITE | VREGION_FLAGS_MPB)
 
-
+#define ENTRIES_PER_FRAME 64
 
 struct mapping {
     lpaddr_t paddr;
@@ -67,6 +67,7 @@ struct paging_state {
     lvaddr_t addrs[100];
     lvaddr_t sizes[100];
     struct capref l2_caps[ARM_L1_MAX_ENTRIES];
+    struct capref frame_caps[ARM_L1_MAX_ENTRIES*ARM_L2_MAX_ENTRIES/ENTRIES_PER_FRAME];
 };
 
 struct thread;

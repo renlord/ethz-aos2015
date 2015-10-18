@@ -36,7 +36,7 @@ extern morecore_free_func_t sys_morecore_free;
 #define HEAP_SIZE (1<<24)
 
 static char mymem[HEAP_SIZE] = { 0 };
-static char *endp = mymem + HEAP_SIZE;
+// static char *endp = mymem + HEAP_SIZE;
 
 /**
  * \brief Allocate some memory for malloc to use
@@ -48,22 +48,22 @@ static char *endp = mymem + HEAP_SIZE;
  */
 static void *morecore_alloc(size_t bytes, size_t *retbytes)
 {
-    struct morecore_state *state = get_morecore_state();
-
-    char *freep = state->freep;
-
-    size_t aligned_bytes = ROUND_UP(bytes, sizeof(Header));
-    void *ret = NULL;
-    if (freep + aligned_bytes < endp) {
-        ret = freep;
-        freep += aligned_bytes;
-    }
-    else {
-        aligned_bytes = 0;
-    }
-    *retbytes = aligned_bytes;
-    // void *ret;
-    // paging_alloc(get_current_paging_state(), &ret, bytes);
+    // struct morecore_state *state = get_morecore_state();
+    //
+    // char *freep = state->freep;
+    //
+    // size_t aligned_bytes = ROUND_UP(bytes, sizeof(Header));
+    // void *ret = NULL;
+    // if (freep + aligned_bytes < endp) {
+    //     ret = freep;
+    //     freep += aligned_bytes;
+    // }
+    // else {
+    //     aligned_bytes = 0;
+    // }
+    // *retbytes = aligned_bytes;
+    void *ret;
+    paging_alloc(get_current_paging_state(), &ret, bytes);
     return ret;
 }
 
