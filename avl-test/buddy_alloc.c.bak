@@ -1,0 +1,499 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <assert.h>
+
+#define MAX(a,b) \
+    ({ __typeof__ (a) _a = (a); \
+     __typeof__ (b) _b = (b); \
+     _a > _b ? _a : _b; })
+
+#define MIN(a,b) \
+    ({ __typeof__ (a) _a = (a); \
+     __typeof__ (b) _b = (b); \
+     _a < _b ? _a : _b; })
+
+#define RIGHT_HEAVY(node) (node->right ? node->right->height : 0) \
+    > (node->left ? node->left->height : 0)
+#define LEFT_HEAVY(node) (node->left ? node->left->height : 0) \
+    > (node->right ? node->right->height : 0)
+
+#define true (1==1)
+#define false (1==0)
+#define bool char
+
+#define FREE_SPACE 1UL << 30
+#define START_ADDR 1UL << 25
+#define MIN_NODE_SIZE 1UL << 15
+
+
+typedef unsigned long lpaddr_t;
+typedef unsigned long lvaddr_t;
+typedef unsigned long addr_t;
+typedef unsigned long size_t;
+
+
+struct avl_node {
+    lvaddr_t addr;
+    size_t size;
+    struct avl_node *left;
+    struct avl_node *right;
+    unsigned short height; 
+};
+
+struct avl_node **db;
+
+// struct to store the paging status of a process
+struct paging_state {
+    struct avl_node *root;
+};
+
+static void avl_update_height(struct avl_node *node) {
+    assert(node != NULL);
+
+    short lh = node->left ? node->left->height : 0;
+    short rh = node->right ? node->right->height : 0;
+
+    node->height = MAX(lh, rh) + 1;
+}
+
+static void avl_rotate_left(struct avl_node **node) 
+{
+    // Pre-Conditions
+    assert(node != NULL && *node != NULL);
+    assert((*node)->right != NULL);
+
+    struct avl_node *temp = (*node)->right;
+
+    (*node)->right = temp->left;
+    temp->left = *node;
+
+    // _clean_node_child_ref(node);
+    avl_update_height(*node);
+    avl_update_height(temp);
+
+    *node = temp;
+}
+
+/**
+ * returns the new child for the parent
+ */
+static void avl_rotate_right(struct avl_node **node) 
+{
+    // Pre-Conditions
+    assert(node != NULL && *node != NULL);
+    assert((*node)->left != NULL);
+
+    struct avl_node *temp = (*node)->left;
+
+    (*node)->left = temp->right;
+    temp->right = *node;
+
+    avl_update_height(*node);
+    avl_update_height(temp);
+
+    *node = temp;
+}
+
+/**
+ * // node, current node to balance
+ * // root, the root node of the tree
+ * 
+ * RETURNS the new child for the parent
+ */
+static void avl_balance_node(struct avl_node **parent) 
+{
+    assert(parent != NULL);
+    struct avl_node *node = *parent;
+
+    // get balance for node
+    short lh = (node->left != NULL) ? node->left->height : 0;
+    short rh = (node->right != NULL) ? node->right->height : 0;
+    short balance = lh - rh;
+
+    if (balance < -1)
+    {
+        // handle right subtree too high
+        assert(node->right != NULL);
+        if (LEFT_HEAVY(node->right)){
+            avl_rotate_right(&(node->right));
+        }
+        avl_rotate_left(parent);
+        //printf("rotation done\n");
+    } 
+    else if (balance > 1) 
+    {
+        // handle left subtree too high
+        // check for left right case
+        assert(node->left != NULL);
+        if (RIGHT_HEAVY(node->left)){
+            avl_rotate_left(&(node->left));
+        }
+        avl_rotate_right(parent);
+        //printf("rotation done\n");
+    }
+    else {
+        ;
+    }
+    assert(parent != NULL);
+    assert(*parent != NULL);
+}
+
+static struct avl_node* avl_lookup_aux(struct avl_node *node, size_t size, lvaddr_t addr){
+    if (!node)
+        return NULL;
+    else if(size > node->size) {
+        return avl_lookup_aux(node->right, size, addr);
+    } else if(size < node->size) {
+        return avl_lookup_aux(node->left, size, addr);
+    } else if (addr == 0 || addr == node->addr){
+        return node;
+    } else if (addr > node->addr) {
+        return avl_lookup_aux(node->right, size, addr);
+    } else {
+        return avl_lookup_aux(node->left, size, addr);
+    }
+}
+
+struct avl_node *avl_lookup(struct paging_state *s, size_t size, lvaddr_t addr) {
+    struct avl_node *res = avl_lookup_aux(s->root, size, addr);
+    return res;
+}
+
+/**
+ * insert node
+ *
+ * inserts generic node to generic tree
+ * 
+ * YOUR RESPONSIBILITY to provide correct tree and correct `key_type` or everything will
+ * FUCK UP.
+ * 
+ * // parent, pointer to pointer to current node.
+ * // key_type, the key type to use, either P_TO_V or V_TO_P
+ * // child, pointer to the child node.
+ *
+ * CAVEATS:
+ * Assumes that lookup has been performed and confirm that the address has not been mapped.
+ */
+static void insert_node(struct avl_node **parent, struct avl_node *child)
+{
+    size_t child_key, intree_key;
+
+    if (*parent == NULL) 
+    {   
+        // Changes the Pointer to the Pointer of the Root Node.
+        *parent = child;
+    }
+    else 
+    {        
+        struct avl_node *cur = *parent;
+
+        // Sanity check
+        assert(cur->size != child->size || cur->addr != child->addr);
+
+        //assumes insertion successful
+        if(child->size < cur->size) {
+            // passes in the pointer to the pointer of the subsequent child node.
+            insert_node(&(cur->left), child);
+        } else if(child->size > cur->size) {
+            insert_node(&(cur->right), child);
+        } else if(child->addr < cur->addr) {
+            insert_node(&(cur->left), child);
+        } else {
+            insert_node(&(cur->right), child);
+        }
+        
+        avl_update_height(cur);
+        avl_balance_node(parent);
+    }
+}
+
+static struct avl_node *find_min_node(struct avl_node *node) 
+{
+    assert( node != NULL );
+    while( node->left != NULL ) {
+        node = node->left; 
+    }
+    assert( node != NULL );
+    return node;
+}
+
+static void remove_node(struct avl_node **parent, size_t key, lvaddr_t addr) 
+{
+    assert(parent != NULL && *parent != NULL);
+
+    struct avl_node *node = *parent;
+    struct avl_node *successor;
+
+    size_t in_value = node->size;
+
+    if (key == in_value && addr == node->addr) {
+        
+        // No Child Case 
+        if (node->left == NULL && node->right == NULL) {
+            *parent = NULL;
+            free(node);
+        }
+        
+        // Single Child Cases            
+        else if (node->left != NULL && node->right == NULL) { 
+            *parent = node->left;
+            free(node);
+        }
+        else if (node->left == NULL && node->right != NULL) {
+            *parent = node->right;
+            free(node);
+        }
+        
+        // Two Children Case
+        else 
+        {
+            successor = find_min_node(node->right);
+            node->size = successor->size;
+            node->addr = successor->addr;
+            remove_node(&(node->right), successor->size, successor->addr);
+        }
+        // de-allocates and purged from memory
+        return;
+    }
+ 
+    struct avl_node **next;
+        
+    if (key > in_value) {
+        next = &node->right;
+    } else if (key < in_value) {
+        next = &node->left;
+    } else if (addr > node->addr){
+        next = &node->right;
+    } else {
+        next = &node->left;
+    }
+
+    remove_node(next, key, addr);
+    avl_update_height(node);
+    avl_balance_node(parent);
+
+    assert(parent != NULL); 
+}
+
+int _print_t(struct avl_node *tree, int is_left, int offset, int depth, char s[20][255*4])
+{
+    char b[32];
+    int width = 24;
+
+    if (!tree) return 0;
+
+    sprintf(b, "%08lu -> %08lu (%i)", tree->size, tree->addr, tree->height);
+
+    int left  = _print_t(tree->left,  1, offset,                depth + 1, s);
+    int right = _print_t(tree->right, 0, offset + left + width, depth + 1, s);
+
+
+    for (int i = 0; i < width; i++)
+        s[2 * depth][offset + left + i] = b[i];
+
+    if (depth && is_left) {
+
+        for (int i = 0; i < width + right; i++)
+            s[2 * depth - 1][offset + left + width/2 + i] = '-';
+
+        s[2 * depth - 1][offset + left + width/2] = '+';
+        s[2 * depth - 1][offset + left + width + right + width/2] = '+';
+
+    } else if (depth && !is_left) {
+
+        for (int i = 0; i < left + width; i++)
+            s[2 * depth - 1][offset - width/2 + i] = '-';
+
+        s[2 * depth - 1][offset + left + width/2] = '+';
+        s[2 * depth - 1][offset - width/2 - 1] = '+';
+    }
+    return left + width + right;
+}
+
+void print_t(struct avl_node *tree)
+{
+    char s[20][255*4];
+    for (int i = 0; i < 20; i++)
+        sprintf(s[i], "%80s", " ");
+
+    _print_t(tree, 0, 0, 0, s);
+
+    for (int i = 0; i < 20; i++)
+        printf("%s\n", s[i]);
+}
+
+// struct addr_mapping *create_mapping(lpaddr_t paddr, lvaddr_t vaddr){
+//     struct addr_mapping* m = (struct addr_mapping *) malloc(sizeof(struct addr_mapping));
+//     m->paddr = paddr;
+//     m->vaddr = vaddr;
+//     return m;
+// }
+
+struct avl_node *create_node(size_t size, lvaddr_t addr){
+    struct avl_node* n = (struct avl_node *) malloc(sizeof(struct avl_node));
+    n->size = size;
+    n->addr = addr;
+    n->left = NULL;
+    n->right = NULL;
+    n->height = 1;
+    return n;
+}
+
+// TODO: Revise to support Start & End addresses.
+// void insert_mapping(struct paging_state *s, lvaddr_t vaddr, lpaddr_t paddr){
+//
+//     struct addr_mapping *m = create_mapping(vaddr, paddr);
+//     struct avl_node *n_p2v = create_node(m);
+//     struct avl_node *n_v2p = create_node(m);
+//
+//     insert_node(s->phys_to_virt, P_TO_V, n_p2v);
+//     insert_node(s->root, V_TO_P, n_v2p);
+// }
+
+void clean_tree(struct avl_node *node) {
+    struct avl_node *left = node->left;
+    struct avl_node *right = node->right;
+
+    free(node);
+
+    // recurse on each subtrees if existent
+    if(left != NULL)
+        clean_tree(left);
+    if(right != NULL)
+        clean_tree(right);
+}
+
+struct avl_node *find_space(struct avl_node *n, size_t size)
+{
+    // Node cannot accomodate request
+    if (n->size < size) {
+        
+        // We have a right child, so recurse
+        if (n->right) {
+            return find_space(n->right, size);
+
+        // We do not have a large enough node
+        } else {
+            return NULL;
+        }
+        
+    // Node has left child which is big enough
+    } else if(n->left->size >= size){
+        return find_space(n->left, size);
+    
+    // Node is best fit in subtree
+    } else {
+        return n;
+    }
+}
+
+lvaddr_t paging_alloc(struct paging_state *st, size_t size){
+    // Find free node
+    struct avl_node *free_node = find_space(st->root, size);
+    if (!free_node) {
+        // Could not find free space
+        return 0;
+    }
+
+    // Get size and addr of node and remove from tree
+    size_t best_size = free_node->size;
+    lvaddr_t addr = free_node->addr;
+    remove_node(&st->root, free_node);
+    
+    // Continuously split until requested size is smaller
+    // than double the size of best fit
+    while ((best_size >> 1) >= size &&
+           (best_size >> 1) >= MIN_PAGE_SIZE)
+    {
+        best_size >>= 1;
+        struct avl_node *n = create_node(best_size, addr^best_size);
+        insert_node(&st->root, n);
+    }
+    
+    return addr;
+}
+
+struct avl_node *find_addr(struct avl_node *n, lvaddr_t addr)
+{
+    if (!n || n->addr == addr){
+        return n;
+    }
+    
+    struct avl_node *l = find_addr(n->left, addr);
+    return l ? l : find_addr(n->right, addr);
+}
+
+void paging_dealloc(struct paging_state *st, lvaddr_t addr)
+{
+    struct avl_node *n = find_addr(st->root, addr);
+    assert(n);
+    
+    size_t size = n->size;
+    
+    remove_node(&st->root, size, addr);
+    
+    struct avl_node *buddy = avl_lookup(st, size, addr ^ size);
+    while (buddy && buddy->size == size) {
+        lvaddr_t n_addr = MIN(addr, buddy->addr);
+        remove_node(&st->root, size, buddy->addr);
+        struct avl_node combined = create_node(&st->root, size << 1, n_addr);
+        insert_node(&st->root, combined);
+        
+        size <<= 1;
+        buddy = avl_lookup(st, size, n_addr);
+    }
+        
+}
+
+int main(int argc, char **argv) {
+    struct paging_state *s = (struct paging_state *) malloc(sizeof(struct paging_state));
+
+    // Create Pointer to Pointer to the Root Node.
+    s->root = NULL;
+    db = &s->root; // TODO remove
+
+    insert_node(&s->root, create_node(START_ADDR, FREE_SPACE));
+    
+    int verbose = atoi(argv[1]);
+    int no = atoi(argv[2]);
+    long keys[no];
+    long vals[no];
+    long key;
+    long val;
+
+    for(uint32_t i = 0; i < no; i++){
+        scanf("%lu", &key);
+        keys[i] = key;
+        
+        scanf("%lu", &val);
+        vals[i] = val;
+        
+        struct avl_node *node = create_node(key, val);
+        insert_node(&s->root, node);
+        if(verbose)
+            printf("inserted %lu\n", key);
+    }
+
+    // for(int i = 0; i < no; i++){
+    //     addr_t res = avl_lookup(s, keys[i]);
+    //     assert(res==vals[i]);
+    //
+    //     if(verbose)
+    //         printf("Found %lu (%i/%i)\n", res, i, no);
+    // }
+    
+    if (verbose)
+        printf("FOUND TRACE COMPLETE\n");
+
+    for (uint32_t i = 0; i < no; i++) {
+        if (verbose)
+            printf("Removing %lu\n", keys[i]);
+        remove_node(&s->root, keys[i], vals[i]);
+        if (verbose)
+            printf("Removed %lu\n", keys[i]);
+    }
+
+    if (verbose)
+        printf("Testing Complete\n");
+
+}
