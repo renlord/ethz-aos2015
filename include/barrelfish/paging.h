@@ -46,36 +46,40 @@ typedef int paging_flags_t;
 #define VREGION_FLAGS_READ_WRITE_MPB \
     (VREGION_FLAGS_READ | VREGION_FLAGS_WRITE | VREGION_FLAGS_MPB)
 
-#define ENTRIES_PER_FRAME 64
-
-struct mapping {
-    lpaddr_t paddr;
-    lvaddr_t vaddr;
-    size_t size;
-};
-
-struct avl_node {
-    struct mapping map;
+#define ENTRIES_PER_FRAME 32
+#define L1_ENTRIES (ARM_L1_OFFSET(VADDR_OFFSET)>>2)
+#define NO_OF_FRAMES \
+    L1_ENTRIES*(ARM_L2_MAX_ENTRIES<<2)/ENTRIES_PER_FRAME
+        
+struct node {
+    lvaddr_t addr;
+    size_t max_size;
+    bool allocated;
+    struct node *left;
+    struct node *right;
 };
 
 // struct to store the paging status of a process
 struct paging_state {
-    lvaddr_t next_free;
+    struct node *root;
+    struct node *next_node;
+    struct node all_nodes[ARM_L1_MAX_ENTRIES*10];
+    
     struct capref l1_cap;
-    struct avl_node root_p2v;
-    struct avl_node root_v2p;
-    lvaddr_t addrs[100];
-    lvaddr_t sizes[100];
-    struct capref l2_caps[ARM_L1_MAX_ENTRIES];
-    struct capref frame_caps[ARM_L1_MAX_ENTRIES*ARM_L2_MAX_ENTRIES/ENTRIES_PER_FRAME];
+    struct capref l2_caps[L1_ENTRIES];
+    struct capref frame_caps[NO_OF_FRAMES];
+    struct capref *next_frame;
+    struct capref guard_cap;
 };
 
 struct thread;
 /// Initialize paging_state struct
 errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
         struct capref pdir);
+        
 /// initialize self-paging module
 errval_t paging_init(void);
+
 /// setup paging on new thread (used for user-level threads)
 void paging_init_onthread(struct thread *t);
 
