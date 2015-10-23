@@ -331,8 +331,10 @@ static errval_t map_guard_page(struct paging_state *st)
     
     // Map frame capability in L2 pagetable
     err = vnode_map(*l2_cap, st->guard_cap, l2_slot,
-                    VREGION_FLAGS_READ_WRITE, 0, 1);
-
+                    0, 0, 1);
+    // FIXME we hit an assertion error in lib/arch/omap44xx/paging.c:398
+    //       when using VREGION_FLAGS_GUARD as 4th arg
+    
     if (err != SYS_ERR_OK){
         debug_printf("Could not insert frame in L2 pagetable for guard page: %s\n",
                      err_getstring(err));
