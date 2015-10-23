@@ -9,6 +9,7 @@ int main(int argc, char *argv[])
 {
     debug_printf("memeater started\n");
     // TODO STEP 1: connect & send msg to init using syscall
+    //
     // TODO STEP 5: test memory allocation using memserv
     return 0;
 }
