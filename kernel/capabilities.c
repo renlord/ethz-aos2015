@@ -794,6 +794,7 @@ errval_t caps_retype(enum objtype type, size_t objbits,
         debug(SUBSYS_CAPS, "caps_retype: numobjs == 0\n");
         return SYS_ERR_INVALID_SIZE_BITS;
     }
+
    // debug(SUBSYS_CAPS, "caps_retype: numobjs == %d\n", (int)numobjs);
 
     /* check that destination slots all fit within target cnode */

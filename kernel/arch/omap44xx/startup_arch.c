@@ -691,11 +691,62 @@ void arm_kernel_startup(void)
 #if MILESTONE == 3
         // TODO (milestone 3): create endpoints for domains:
         // 1) selfep for each domain -- retype dcb cap into TASKCN_SLOT_SELFEP
+        // DONE
         // 2) create init's receive ep -- mint init's self ep into
         //    TASKCN_SLOT_INITEP & use FIRSTEP_{OFFSET,BUFLEN} as arguments
         //    for minting.
+        // DONE
         // 3) copy init's receive ep into all other domains'
         //    TASKCN_SLOT_INITEP.
+        // DONE
+        errval_t err;
+
+        /*
+        errval_t caps_retype(enum objtype type, size_t objbits,
+                     struct capability *dest_cnode, cslot_t dest_slot,
+                     struct cte *src_cte, bool from_monitor)
+        */
+        // 1
+        struct cte *dispatcher_cap = caps_locate_slot(CNODE(init_st.taskcn), TASKCN_SLOT_DISPATCHER);
+        err = caps_retype(ObjType_EndPoint, 0, &init_st.taskcn->cap, 
+                            TASKCN_SLOT_SELFEP, dispatcher_cap, false);
+        if (err != SYS_ERR_OK) {
+            printf("INIT.1 Error Code: %d\n", err);
+        }
+        assert(err_is_ok(err));
+
+        dispatcher_cap = caps_locate_slot(CNODE(memeater_st.taskcn), TASKCN_SLOT_DISPATCHER);
+        err = caps_retype(ObjType_EndPoint, 0, &memeater_st.taskcn->cap, 
+                            TASKCN_SLOT_SELFEP, dispatcher_cap, false);
+        if (err != SYS_ERR_OK) {
+            printf("MEMEATER.1 Error Code: %d\n", err);
+        }
+        assert(err_is_ok(err)); 
+        debug(LOG_NOTE, "Dispatcher Cap retyped to Endpoint Cap.\n");
+
+        // 2
+        struct cte *init_ep_cap = caps_locate_slot(CNODE(init_st.taskcn), TASKCN_SLOT_SELFEP);
+        err = caps_copy_to_cnode(init_st.taskcn, TASKCN_SLOT_INITEP, init_ep_cap,
+                                    true, FIRSTEP_OFFSET, FIRSTEP_BUFLEN);
+        if (err != SYS_ERR_OK) {
+            printf("INIT.2 Error Code: %d\n", err);
+        }
+        assert(err_is_ok(err));
+        /*
+        errval_t caps_copy_to_cnode(struct cte *dest_cnode_cte, cslot_t dest_slot,
+                            struct cte *src_cte, bool mint, uintptr_t param1,
+                            uintptr_t param2);
+        */
+        // 3
+        err = caps_copy_to_cnode(memeater_st.taskcn, TASKCN_SLOT_INITEP, init_ep_cap,
+                                    true, FIRSTEP_OFFSET, FIRSTEP_BUFLEN);
+        if (err != SYS_ERR_OK) {
+            printf("INIT.3 Error Code: %d\n", err);
+        }
+        assert(err_is_ok(err));
+        debug(LOG_NOTE, "Minted Init EP to other domain INIT_EP Slots.\n");
+        printk(LOG_NOTE, "EP Capss created and Buffers minted accordingly...\n");
+        
 #endif
     } else {
         debug(SUBSYS_STARTUP, "Doing non-BSP related bootup \n");

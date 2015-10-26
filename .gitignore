@@ -30,4 +30,8 @@
 
 # Debug files
 *.dSYM/
+
+# Working Environment Specific Files
 tags
+.tags
+tmtags
