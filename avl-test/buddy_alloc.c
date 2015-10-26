@@ -51,6 +51,7 @@ size_t get_max(struct node *x, struct node *y){
     size_t ys = ALLOCED_BLOB(y) ? 0 : y->max_size;
     return xs > ys ? xs : ys;
 }
+
 /**
  * Allocate memory
  */

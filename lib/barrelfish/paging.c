@@ -26,10 +26,10 @@
 
 // Our exception stack size
 #define EXC_STACK_SIZE 256*EXC_STACK_ALIGNMENT
-
-#define V_OFFSET 1UL << 26
-
+#define V_OFFSET (1UL << 25)
 #define THROW_ERROR *((char*)0) = 'x'
+#define ALLOCED_BLOB(n) (n->allocated && !n->left && !n->right)
+#define MAX_STRUCT_SIZE (1UL << 10)
 
 #define MAX(a,b) \
     ({ __typeof__ (a) _a = (a); \
@@ -64,91 +64,200 @@ static errval_t arml2_alloc(struct capref *ret)
     return SYS_ERR_OK;
 }
 
-
-errval_t avl_insert_node(struct paging_state *st, void **buf, size_t bytes);
-
-errval_t avl_insert_node(struct paging_state *st, void **buf, size_t bytes)
+size_t get_max(struct node *x, struct node *y);
+size_t get_max(struct node *x, struct node *y)
 {
-    if(!st)
-        return SYS_ERR_OK;
-
-    lvaddr_t addr = st->addrs[st->next_free];
-    *((lvaddr_t*)buf) = addr;
-
-    st->sizes[st->next_free] = bytes;
-    st->addrs[++st->next_free] = ROUND_UP(addr+bytes, BASE_PAGE_SIZE);
-
-    debug_printf("in avl_insert_node for st 0x%08x\n", st);
-    debug_printf("addrs changed from 0x%08x to 0x%08x\n",
-                 addr, st->addrs[st->next_free]);
-    debug_printf("next_free incremented from %d to %d\n",
-                 st->next_free-1, st->next_free);
-
-    return SYS_ERR_OK;
+    size_t xs = ALLOCED_BLOB(x) ? 0 : x->max_size;
+    size_t ys = ALLOCED_BLOB(y) ? 0 : y->max_size;
+    return xs > ys ? xs : ys;
 }
 
 
+static struct node *create_node(struct paging_state *st);
+static struct node *create_node(struct paging_state *st)
+{
+    struct node *n = st->next_node++;
+    n->max_size = 0;
+    n->addr = 0;
+    n->allocated = false;
+    n->left = NULL;
+    n->right = NULL;
+    return n;
+}
+
+void remove_node(struct node *n);
+void remove_node(struct node *n){
+    // TODO deallocate from heap and rearrange
+}
+
+/**
+ * Allocate memory
+ */
+lvaddr_t buddy_alloc(struct paging_state *st,
+                     struct node *cur, size_t req_size);
+lvaddr_t buddy_alloc(struct paging_state *st,
+                     struct node *cur, size_t req_size)
+{   
+    // Pre-conditions
+    assert((!cur->left && !cur->right) || (cur->left && cur->right));
+    
+    // Size available in subtree is less than what's requested
+    if (cur->max_size < req_size){
+        return -1;
+    }
+        
+    // Case 1: Node is a leaf (i.e. blob of memory)
+    if (!cur->left){
+        assert(!cur->allocated);
+        
+        // Case 1a: Blob is big enough to do a split and recurse
+        if ((cur->max_size >> 1) > req_size &&
+            (cur->max_size >> 1) >= BASE_PAGE_SIZE) {
+
+            size_t half_size = cur->max_size >> 1;
+                
+            struct node *left_buddy = create_node(st);
+            left_buddy->allocated = false;
+            left_buddy->addr = cur->addr;
+            left_buddy->max_size = half_size;
+            
+            struct node *right_buddy = create_node(st);
+            right_buddy->allocated = false;
+            right_buddy->addr = cur->addr ^ half_size;
+            right_buddy->max_size = half_size;
+            
+            cur->left = left_buddy;
+            cur->right = right_buddy;
+            cur->max_size = half_size;
+            cur->allocated = true;
+            
+            // Sanity checks
+            assert(left_buddy->addr < right_buddy->addr);
+            assert((left_buddy->addr ^ right_buddy->addr) == half_size);
+            
+            return buddy_alloc(st, left_buddy, req_size);
+            
+        // Case 1b: Blob is best fit, so mark as allocated and return address
+        } else {
+            cur->allocated = true;
+            return cur->addr;
+        }
+
+    // Case 2: Node is intermediate, so locate the child that fits the best
+    } else {
+        struct node *best_fit;
+        
+        bool left_to_small = cur->left->max_size < req_size;
+        bool right_fits_better =
+            ((cur->left->max_size > cur->right->max_size) &&
+            (cur->right->max_size >= req_size));
+        
+        if (ALLOCED_BLOB(cur->left) || left_to_small || right_fits_better){
+            if(cur->right->max_size == 0){
+                return -1;
+            }
+            best_fit = cur->right;
+        } else {
+            // Sanity check
+            assert(cur->left->max_size);
+            
+            best_fit = cur->left;
+        }
+
+        // Recursively find for appropriate node and
+        // update max_size value
+        lvaddr_t addr = buddy_alloc(st, best_fit, req_size);
+        cur->max_size = get_max(cur->left, cur->right);
+        
+        // Post conditions
+        assert((!cur->left && !cur->right) || (cur->left && cur->right));
+        assert(ALLOCED_BLOB(cur->left) || cur->max_size >= cur->left->max_size);
+        assert(ALLOCED_BLOB(cur->right) || cur->max_size >= cur->right->max_size);
+        
+        return addr;
+    }    
+}
+
+static bool buddy_check_addr(struct node *cur, lvaddr_t addr)
+{
+    // We're either a leaf or have two children
+    assert((!cur->left && !cur->right) || (cur->left && cur->right));
+    
+    // If cur is a leaf, addr must be within range
+    if (!cur->left){
+        return cur->allocated &&
+               cur->addr <= addr &&
+               cur->addr+cur->max_size > addr;
+    
+    // Otherwise we recurse
+    } else {
+        struct node *next =
+            (cur->right->addr <= addr) ? cur->right : cur->left;
+        return buddy_check_addr(next, addr);
+    }
+}
+
+static void buddy_dealloc(struct node *cur, lvaddr_t addr) 
+{
+    assert(cur);
+
+    if (ALLOCED_BLOB(cur)) {
+        assert(cur->addr == addr);
+        cur->allocated = false;
+        return;
+    } else if (cur->right && (cur->right->addr <= addr)) {
+        buddy_dealloc(cur->right, addr);
+    } else {
+        buddy_dealloc(cur->left, addr);
+    }
+    
+    assert(cur->left && cur->right);
+    
+    if (!cur->left->allocated && !cur->right->allocated){
+        size_t new_size = cur->addr ^ cur->right->addr;
+        
+        remove_node(cur->left);
+        remove_node(cur->right);
+        
+        cur->left = NULL;
+        cur->right = NULL;
+        cur->allocated = false;
+        cur->max_size = new_size;
+    } else {
+        cur->max_size = get_max(cur->left, cur->right);
+    }
+}
+
 uint32_t stack[EXC_STACK_SIZE];
 
-void page_fault_handler(enum exception_type type, int subtype,
-                        void *addr, arch_registers_state_t *regs,
-                        arch_registers_fpu_state_t *fpuregs);
-
-// TODO: implement page fault handler that installs frames when a page fault
-// occurs and keeps track of the virtual address space.
-void page_fault_handler(enum exception_type type, int subtype,
-                        void *addr, arch_registers_state_t *regs,
-                        arch_registers_fpu_state_t *fpuregs)
+static void allocate_pt(struct paging_state *st, lvaddr_t addr)
 {
-    if (type != EXCEPT_PAGEFAULT){
-        // TODO handle other pagefaults
-        return;
-    }
     errval_t err;
     
-    // Cast for easier calculations
-    lvaddr_t vaddr = (lvaddr_t)addr;
-
-    
-    // Primitive way of finding next address
-    size_t bytes = 0;
-    for (uint32_t i = 0; i < current.next_free; i++){
-        if(current.addrs[i] <= vaddr &&
-           current.addrs[i] + current.sizes[i] > vaddr){
-               bytes = current.sizes[i];
-        }
-    }
-    
-    if (bytes == 0) {
-        debug_printf("Did not find address 0x%08x!!\n", vaddr);
-        THROW_ERROR;
-    }
-    
-    
     // Relevant pagetable slots
-    cslot_t l1_slot = ARM_L1_OFFSET(vaddr)>>2;
-    cslot_t l2_slot = ARM_L2_OFFSET(vaddr)+(ARM_L1_OFFSET(vaddr)%4)*ARM_L2_MAX_ENTRIES;
+    cslot_t l1_slot = ARM_L1_OFFSET(addr)>>2;
+    cslot_t l2_slot =
+        ARM_L2_OFFSET(addr)+(ARM_L1_OFFSET(addr)%4)*ARM_L2_MAX_ENTRIES;
 
     // Check if we have l2 capabilities and request if not
-    struct capref *l2_cap = &current.l2_caps[l1_slot];
+    struct capref *l2_cap = &(st->l2_caps[l1_slot]);
     if(capref_is_null(*l2_cap)) {
+
         // Allocate capability
         arml2_alloc(l2_cap);
-    
+        
         // Insert L2 pagetable in L1 pagetable
-        err = vnode_map(current.l1_cap, *l2_cap, l1_slot,
+        err = vnode_map(st->l1_cap, *l2_cap, l1_slot,
                         VREGION_FLAGS_READ_WRITE, 0, 1);
-    
+        
         if (err != SYS_ERR_OK){
-            debug_printf("Could not insert L2 pagetable in L1 pagetable for addr 0x%08x: %s\n",
-                         vaddr, err_getstring(err));
+            debug_printf("Could not insert L2 pagetable in L1 pagetable for addr 0x%08x: %s\n", addr, err_getstring(err));
             THROW_ERROR;
         }
     }
     
     // Allocate frame capabilities
-    uint32_t frame_idx = (l1_slot*ARM_L1_MAX_ENTRIES*4+l2_slot)/ENTRIES_PER_FRAME;
-    struct capref *frame_cap = &current.frame_caps[frame_idx];
+    struct capref *frame_cap = st->next_frame++;
     
     // If we already have a capability stored for this frame, something went wrong
     if (!capref_is_null(*frame_cap)) {
@@ -157,11 +266,13 @@ void page_fault_handler(enum exception_type type, int subtype,
     }
     
     // We don't have capability so request
-    size_t retsize;
-    frame_alloc(frame_cap, BASE_PAGE_SIZE*ENTRIES_PER_FRAME, &retsize);
-    if (retsize != BASE_PAGE_SIZE*ENTRIES_PER_FRAME){
+    size_t req_size = BASE_PAGE_SIZE*ENTRIES_PER_FRAME;
+    size_t ret_size;
+    frame_alloc(frame_cap, req_size, &ret_size);
+
+    if (ret_size != req_size){
         debug_printf("Tried to allocate %d bytes but could only allocate %d.\n",
-                     BASE_PAGE_SIZE*ENTRIES_PER_FRAME, retsize);
+                     req_size, ret_size);
         THROW_ERROR;
     }
     
@@ -170,13 +281,117 @@ void page_fault_handler(enum exception_type type, int subtype,
                     VREGION_FLAGS_READ_WRITE, 0, ENTRIES_PER_FRAME);
         if (err != SYS_ERR_OK){
         debug_printf("Could not insert frame in L2 pagetable for addr 0x%08x: %s\n",
-                     vaddr, err_getstring(err));
+                     addr, err_getstring(err));
         THROW_ERROR;                
     }
-    
 }
 
+static errval_t map_guard_page(struct paging_state *st)
+{
+    // Slots for last entry of last l2 page table
+    cslot_t l1_slot = L1_ENTRIES-1;
+    cslot_t l2_slot = (ARM_L2_MAX_ENTRIES<<2)-1;
+    
+    debug_printf("l1_slot: %d, l2_slot: %d, stride: %d, st: 0x%08x\n",
+        l1_slot, l2_slot, l1_slot*l2_slot, st);
+    debug_printf("guard addr: 0x%08x\n",
+        VADDR_OFFSET-BASE_PAGE_SIZE);
+    
+    // Allocate L2 capability
+    errval_t err;
+    struct capref *l2_cap = &(st->l2_caps[l1_slot]);
 
+    err = arml2_alloc(l2_cap);
+    if (err != SYS_ERR_OK){
+        debug_printf("Could not allocate L2 pagetable\
+                      entry for guard page: %s\n", err_getstring(err));
+        return err;
+    }
+    
+    // Insert L2 pagetable in L1 pagetable
+    err = vnode_map(st->l1_cap, *l2_cap, l1_slot,
+                    VREGION_FLAGS_READ_WRITE, 0, 1);
+    
+    if (err != SYS_ERR_OK){
+        debug_printf("Could not insert L2 pagetable in L1\
+                      pagetable while mapping guard page: %s\n",
+                      err_getstring(err));
+        return err;
+    }
+    
+    // Allocate frame capability
+    size_t ret_size;
+    err = frame_alloc(&st->guard_cap, BASE_PAGE_SIZE, &ret_size);
+    if (err != SYS_ERR_OK || ret_size != BASE_PAGE_SIZE){
+        debug_printf("Tried to allocate %d bytes for\
+                     guard page but could only allocate %d.\n",
+                     BASE_PAGE_SIZE, ret_size);
+        return err;
+    }
+    
+    // Map frame capability in L2 pagetable
+    err = vnode_map(*l2_cap, st->guard_cap, l2_slot,
+                    0, 0, 1);
+    // FIXME we hit an assertion error in lib/arch/omap44xx/paging.c:398
+    //       when using VREGION_FLAGS_GUARD as 4th arg
+    
+    if (err != SYS_ERR_OK){
+        debug_printf("Could not insert frame in L2 pagetable for guard page: %s\n",
+                     err_getstring(err));
+        return err;
+    }
+    
+    return SYS_ERR_OK;
+}
+
+void page_fault_handler(enum exception_type type, int subtype,
+                        void *addr, arch_registers_state_t *regs,
+                        arch_registers_fpu_state_t *fpuregs);
+
+void page_fault_handler(enum exception_type type, int subtype,
+                        void *addr, arch_registers_state_t *regs,
+                        arch_registers_fpu_state_t *fpuregs)
+{
+    if (capref_is_null(current.guard_cap)){
+        map_guard_page(&current);
+    }
+    
+    lvaddr_t vaddr = (lvaddr_t)addr;
+    
+    // We assume all structs are less than 1KB, so pagefaults on addrs
+    // less than this count as NULL pointer exception
+    type = (vaddr < MAX_STRUCT_SIZE) ? EXCEPT_NULL
+         : (vaddr >= VADDR_OFFSET - BASE_PAGE_SIZE) ? EXCEPT_OTHER
+         : type;
+    
+    // Handle non-pagefault exceptions
+    switch(type){
+        case EXCEPT_NULL:
+            // buddy_dealloc(current.root, 0);
+            // TODO tell kernel to gracefully shutdown program
+            return;
+        case EXCEPT_BREAKPOINT:
+        case EXCEPT_SINGLESTEP:
+            // TODO stuff
+            return;
+        case EXCEPT_OTHER:
+            // buddy_dealloc(current.root, 0);
+            // TODO tell kernel to gracefully shutdown program
+            return;
+        default:;
+    }
+    
+    // Check if addr is in buddy allocation tree and throw error if not
+    if (!buddy_check_addr(current.root, (lvaddr_t)addr)) {
+        debug_printf("Did not find address 0x%08x!\n", (lvaddr_t)addr);
+        // buddy_dealloc(current.root, 0);
+        // TODO tell kernel to gracefully shutdown program
+        return;
+    }
+    
+    // Otherwise, allocate frame
+    allocate_pt(&current, (lvaddr_t)addr);
+}
 
 errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
         struct capref pdir)
@@ -184,24 +399,27 @@ errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
     debug_printf("paging_init_state\n");
     
     start_vaddr = MAX(start_vaddr, V_OFFSET);
-    
-    // TODO: implement state struct initialization
     st->l1_cap = pdir;
     current = *st;
-    struct avl_node root_v2p = {{start_vaddr, 0, 0}};
     
-    st->root_v2p = root_v2p;
-    st->addrs[0] = start_vaddr;
-    st->next_free = 0;
-    
-    for(uint32_t i = 0; i < ARM_L1_MAX_ENTRIES; i++){
+    for(uint32_t i = 0; i < L1_ENTRIES; i++){
         st->l2_caps[i] = NULL_CAP;
     }
     
-    for(uint32_t i = 0; i < ARM_L1_MAX_ENTRIES*ARM_L2_MAX_ENTRIES/ENTRIES_PER_FRAME; i++){
-        // st->frame_caps[i] = NULL_CAP;
+    for(uint32_t i = 0; i < NO_OF_FRAMES; i++){
+        st->frame_caps[i] = NULL_CAP;
     }
     
+    st->guard_cap = NULL_CAP;
+
+    st->next_node = st->all_nodes;
+    st->next_frame = st->frame_caps;
+    st->root = create_node(st);
+    st->root->max_size = VADDR_OFFSET;
+    st->root->addr = 0;
+    
+    buddy_alloc(st, st->root, V_OFFSET);
+        
     return SYS_ERR_OK;
 }
 
@@ -229,8 +447,6 @@ errval_t paging_init(void)
         .cnode = cnode_page,
         .slot = 0,
     };
-
-    printf("l1_cap addr: 0x%08x\n", get_cap_addr(l1_cap));
 
     paging_init_state(&current, 0, l1_cap);
     
@@ -260,7 +476,7 @@ errval_t paging_region_init(struct paging_state *st, struct paging_region *pr, s
     pr->base_addr    = (lvaddr_t)base;
     pr->current_addr = pr->base_addr;
     pr->region_size  = size;
-    // TODO: maybe add paging regions to paging state?
+
     return SYS_ERR_OK;
 }
 
@@ -321,11 +537,8 @@ errval_t paging_alloc(struct paging_state *st, void **buf, size_t bytes)
     current = *st;
 
     // find virtual address from AVL-tree
-    errval_t err = avl_insert_node(st, buf, bytes);
-    if (err_is_fail(err)){
-        return err;
-    }
-                    
+    *((lvaddr_t*)buf) = buddy_alloc(st, st->root, bytes);
+    // TODO handle error                    
     return SYS_ERR_OK;
 }
 
@@ -366,5 +579,6 @@ errval_t paging_map_fixed_attr(struct paging_state *st, lvaddr_t vaddr,
  */
 errval_t paging_unmap(struct paging_state *st, const void *region)
 {
+    buddy_dealloc(st->root, (lvaddr_t)region);
     return SYS_ERR_OK;
 }
