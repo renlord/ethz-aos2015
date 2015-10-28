@@ -239,10 +239,11 @@ static void allocate_pt(struct paging_state *st, lvaddr_t addr)
     cslot_t l2_slot =
         ARM_L2_OFFSET(addr)+(ARM_L1_OFFSET(addr)%4)*ARM_L2_MAX_ENTRIES;
 
+    
     // Check if we have l2 capabilities and request if not
     struct capref *l2_cap = &(st->l2_caps[l1_slot]);
     if(capref_is_null(*l2_cap)) {
-
+        printf("capref for l2 is null\n");
         // Allocate capability
         arml2_alloc(l2_cap);
         
@@ -266,83 +267,38 @@ static void allocate_pt(struct paging_state *st, lvaddr_t addr)
     }
     
     // We don't have capability so request
-    size_t req_size = BASE_PAGE_SIZE*ENTRIES_PER_FRAME;
+    size_t req_size = ENTRIES_PER_FRAME*BASE_PAGE_SIZE;
+    
+    printf("l1_slot: %d\n", l1_slot);
+    printf("l2_slot: %d\n", l2_slot);
+    printf("ROUND_DOWN(l2_slot, ENTRIES_PER_FRAME): %d\n",
+            ROUND_DOWN(l2_slot, ENTRIES_PER_FRAME));
     size_t ret_size;
-    frame_alloc(frame_cap, req_size, &ret_size);
+
+    err = frame_alloc(frame_cap, req_size, &ret_size);
+    if (err != SYS_ERR_OK){
+        debug_printf("Could not allocate frame for addr 0x%08x: %s\n",
+                     addr, err_getstring(err));
+        THROW_ERROR;                
+    }
 
     if (ret_size != req_size){
-        debug_printf("Tried to allocate %d bytes but could only allocate %d.\n",
-                     req_size, ret_size);
-        THROW_ERROR;
+        debug_printf("Tried to allocate %d bytes for addr 0x%08x\
+            but could only allocate %d.\n",
+                     req_size, addr, ret_size);
+        // THROW_ERROR;
     }
     
     // Map frame capability in L2 pagetable
     err = vnode_map(*l2_cap, *frame_cap, ROUND_DOWN(l2_slot, ENTRIES_PER_FRAME),
                     VREGION_FLAGS_READ_WRITE, 0, ENTRIES_PER_FRAME);
-        if (err != SYS_ERR_OK){
+    if (err != SYS_ERR_OK){
         debug_printf("Could not insert frame in L2 pagetable for addr 0x%08x: %s\n",
                      addr, err_getstring(err));
         THROW_ERROR;                
     }
 }
 
-static errval_t map_guard_page(struct paging_state *st)
-{
-    // Slots for last entry of last l2 page table
-    cslot_t l1_slot = L1_ENTRIES-1;
-    cslot_t l2_slot = (ARM_L2_MAX_ENTRIES<<2)-1;
-    
-    debug_printf("l1_slot: %d, l2_slot: %d, stride: %d, st: 0x%08x\n",
-        l1_slot, l2_slot, l1_slot*l2_slot, st);
-    debug_printf("guard addr: 0x%08x\n",
-        VADDR_OFFSET-BASE_PAGE_SIZE);
-    
-    // Allocate L2 capability
-    errval_t err;
-    struct capref *l2_cap = &(st->l2_caps[l1_slot]);
-
-    err = arml2_alloc(l2_cap);
-    if (err != SYS_ERR_OK){
-        debug_printf("Could not allocate L2 pagetable\
-                      entry for guard page: %s\n", err_getstring(err));
-        return err;
-    }
-    
-    // Insert L2 pagetable in L1 pagetable
-    err = vnode_map(st->l1_cap, *l2_cap, l1_slot,
-                    VREGION_FLAGS_READ_WRITE, 0, 1);
-    
-    if (err != SYS_ERR_OK){
-        debug_printf("Could not insert L2 pagetable in L1\
-                      pagetable while mapping guard page: %s\n",
-                      err_getstring(err));
-        return err;
-    }
-    
-    // Allocate frame capability
-    size_t ret_size;
-    err = frame_alloc(&st->guard_cap, BASE_PAGE_SIZE, &ret_size);
-    if (err != SYS_ERR_OK || ret_size != BASE_PAGE_SIZE){
-        debug_printf("Tried to allocate %d bytes for\
-                     guard page but could only allocate %d.\n",
-                     BASE_PAGE_SIZE, ret_size);
-        return err;
-    }
-    
-    // Map frame capability in L2 pagetable
-    err = vnode_map(*l2_cap, st->guard_cap, l2_slot,
-                    0, 0, 1);
-    // FIXME we hit an assertion error in lib/arch/omap44xx/paging.c:398
-    //       when using VREGION_FLAGS_GUARD as 4th arg
-    
-    if (err != SYS_ERR_OK){
-        debug_printf("Could not insert frame in L2 pagetable for guard page: %s\n",
-                     err_getstring(err));
-        return err;
-    }
-    
-    return SYS_ERR_OK;
-}
 
 void page_fault_handler(enum exception_type type, int subtype,
                         void *addr, arch_registers_state_t *regs,
@@ -352,10 +308,6 @@ void page_fault_handler(enum exception_type type, int subtype,
                         void *addr, arch_registers_state_t *regs,
                         arch_registers_fpu_state_t *fpuregs)
 {
-    if (capref_is_null(current.guard_cap)){
-        map_guard_page(&current);
-    }
-    
     lvaddr_t vaddr = (lvaddr_t)addr;
     
     // We assume all structs are less than 1KB, so pagefaults on addrs
@@ -415,7 +367,7 @@ errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
     st->next_node = st->all_nodes;
     st->next_frame = st->frame_caps;
     st->root = create_node(st);
-    st->root->max_size = VADDR_OFFSET;
+    st->root->max_size = (1UL<<31);
     st->root->addr = 0;
     
     buddy_alloc(st, st->root, V_OFFSET);
@@ -439,8 +391,6 @@ errval_t paging_init(void)
                                  stack, &stack[EXC_STACK_SIZE],
                                  &old_stack_base, &old_stack_top);
 
-    printf("From paging_init: 0x%08x\n", page_fault_handler);
-    printf("Old stack base: 0x%08x, old stack top: 0x%08x\n", old_stack_base, old_stack_top);
     // TIP: it might be a good idea to call paging_init_state() from here to
     // avoid code duplication.
     struct capref l1_cap = {
