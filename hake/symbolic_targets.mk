@@ -456,7 +456,8 @@ schedsim-check: $(wildcard $(SRCDIR)/tools/schedsim/*.cfg)
 
 PANDABOARD_MODULES=\
 	armv7/sbin/cpu_omap44xx \
-	armv7/sbin/init_memtest
+	armv7/sbin/init \
+	armv7/sbin/memeater
 
 menu.lst.pandaboard: $(SRCDIR)/hake/menu.lst.pandaboard
 	cp $< $@
