@@ -58,7 +58,6 @@ int main(int argc, char *argv[])
         DEBUG_ERR(err, "Failed to init memory server module");
         abort();
     }
-
     // TODO (milestone 4): Implement a system to manage the device memory
     // that's referenced by the capability in TASKCN_SLOT_IO in the task
     // cnode. Additionally, export the functionality of that system to other

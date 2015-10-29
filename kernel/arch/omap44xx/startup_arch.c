@@ -699,7 +699,7 @@ void arm_kernel_startup(void)
         // 3) copy init's receive ep into all other domains'
         //    TASKCN_SLOT_INITEP.
         // DONE
-        errval_t err;
+         errval_t err;
 
         /*
         errval_t caps_retype(enum objtype type, size_t objbits,
@@ -708,7 +708,8 @@ void arm_kernel_startup(void)
         */
         // 1
         struct cte *dispatcher_cap = caps_locate_slot(CNODE(init_st.taskcn), TASKCN_SLOT_DISPATCHER);
-        err = caps_retype(ObjType_EndPoint, 0, &init_st.taskcn->cap, 
+        assert(dispatcher_cap != (struct cte *) NULL);
+        err = caps_retype(ObjType_EndPoint, 0, &(init_st.taskcn->cap), 
                             TASKCN_SLOT_SELFEP, dispatcher_cap, true);
         if (err != SYS_ERR_OK) {
             printf("INIT.1 Error Code: %d\n", err);
@@ -716,7 +717,8 @@ void arm_kernel_startup(void)
         assert(err_is_ok(err));
 
         dispatcher_cap = caps_locate_slot(CNODE(memeater_st.taskcn), TASKCN_SLOT_DISPATCHER);
-        err = caps_retype(ObjType_EndPoint, 0, &memeater_st.taskcn->cap, 
+        assert(dispatcher_cap != (struct cte *) NULL);
+        err = caps_retype(ObjType_EndPoint, 0, &(memeater_st.taskcn->cap), 
                             TASKCN_SLOT_SELFEP, dispatcher_cap, true);
         if (err != SYS_ERR_OK) {
             printf("MEMEATER.1 Error Code: %d\n", err);
@@ -724,8 +726,9 @@ void arm_kernel_startup(void)
         assert(err_is_ok(err)); 
         debug(LOG_NOTE, "Dispatcher Cap retyped to Endpoint Cap.\n");
 
-        // 2
+        // // 2
         struct cte *init_ep_cap = caps_locate_slot(CNODE(init_st.taskcn), TASKCN_SLOT_SELFEP);
+        assert(init_ep_cap != (struct cte *) NULL);
         err = caps_copy_to_cnode(init_st.taskcn, TASKCN_SLOT_INITEP, init_ep_cap,
                                     true, FIRSTEP_OFFSET, FIRSTEP_BUFLEN);
         if (err != SYS_ERR_OK) {
@@ -738,8 +741,10 @@ void arm_kernel_startup(void)
                             uintptr_t param2);
         */
         // 3
-        err = caps_copy_to_cnode(memeater_st.taskcn, TASKCN_SLOT_INITEP, init_ep_cap,
-                                    true, FIRSTEP_OFFSET, FIRSTEP_BUFLEN);
+        struct cte *init_recv_ep = caps_locate_slot(CNODE(init_st.taskcn), TASKCN_SLOT_INITEP);
+        assert(init_recv_ep != (struct cte *) NULL);
+        err = caps_copy_to_cnode(memeater_st.taskcn, TASKCN_SLOT_INITEP, init_recv_ep,
+                                    false, 0, 0);
         if (err != SYS_ERR_OK) {
             printf("INIT.3 Error Code: %d\n", err);
         }
