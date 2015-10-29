@@ -13,6 +13,17 @@ int main(int argc, char *argv[])
 {
     debug_printf("memeater started\n");
 
+    errval_t err;
+    err = lmp_ep_send0(cap_initep, LMP_SEND_FLAGS_DEFAULT, NULL_CAP);
+    if (!err_is_ok(err)) {
+        debug_printf("part 3 syscall send failed!. Error Code: %d\n", err);
+        thread_yield_dispatcher(cap_initep);
+    } else {
+        debug_printf("part 3 syscall send SUCCESSFUL!\n");
+    }
+
+    // Part 3 & 4.
+
     const uint64_t FIRSTEP_BUFLEN = 21u;
     const uint64_t FIRSTEP_OFFSET = (33472u + 56u);
 
@@ -26,11 +37,34 @@ int main(int argc, char *argv[])
     lc.remote_cap = cap_initep; 
     
     char *buf = "Whatup!";
-    lmp_chan_send(&lc, 1 << 1, NULL_CAP, 8,
+    err = lmp_chan_send(&lc, 1 << 1, NULL_CAP, 8,
                   buf[0], buf[1], buf[2], buf[3], buf[4],
                   buf[5], buf[6], buf[7], buf[8]);       
     
+    if (err_is_ok(err)) {
+        debug_printf("part4 send successful\n");
+    } else {
+        debug_printf("part4 send fail. err:%d\n", err);
+    }
+
     thread_yield_dispatcher(cap_initep);
+
+
+    // Part 5. Capability Passing over LMP
+    struct lmp_endpoint *new_lmpep;
+    err = endpoint_create(DEFAULT_LMP_BUF_WORDS, &my_ep->recv_slot, &new_lmpep);
+    if (!err_is_ok(err)) {
+        debug_printf("p5 new ep creation fail. err code: %d\n", err);
+        err_print_calltrace(err);
+    }
+    err = lmp_chan_send0(&lc, LMP_SEND_FLAGS_DEFAULT, my_ep->recv_slot);
+    if (err_is_ok(err)) {
+        debug_printf("p5 cap send from memeater to init success.\n");
+    } else {
+        debug_printf("p5 cap send from memeater to init FAIL. err code: %d\n", err);
+        err_print_calltrace(err);
+    }
+
     
     // errval_t err;
     // // TODO STEP 1: connect & send msg to init using syscall

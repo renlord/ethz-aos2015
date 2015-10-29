@@ -116,7 +116,7 @@ int main(int argc, char *argv[])
     lc.endpoint = my_ep; 
     lc.local_cap = cap_initep;
     
-    // allocate slot for incoming capabilites
+    // allocate slot for incoming capability from memeater
     err = lmp_chan_alloc_recv_slot(&lc);
     if (err_is_fail(err)){
         printf("Could not allocate receive slot!\n");
@@ -145,6 +145,8 @@ int main(int argc, char *argv[])
         event_dispatch(ws);
         printf("init.c returned from handling event!\n");
     }
-    
+
+    // Part 5. Passing a Capability over LMP
+
     return EXIT_SUCCESS;
 }
