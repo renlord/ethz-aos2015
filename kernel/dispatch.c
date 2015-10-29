@@ -436,6 +436,7 @@ errval_t lmp_deliver_payload(struct capability *ep, struct dcb *send,
     /* Transfer the msg */
     for(int i = 0; i < payload_len; i++) {
         recv_ep->buf[pos] = payload[i];
+        printf("next char: '%c'\n", (char)payload[i]);
         if (++pos == epbuflen) {
             pos = 0;
         }
@@ -498,7 +499,9 @@ errval_t lmp_deliver(struct capability *ep, struct dcb *send,
     }
 
     /* Send msg */
+    printf("dispatch.c: About to deliver payload.\n");
     err = lmp_deliver_payload(ep, send, payload, len, captransfer);
+    printf("dispatch.c: Done.\n");
     // shouldn't fail, if we delivered the cap successfully
     assert(!(captransfer && err_is_fail(err)));
     return err;

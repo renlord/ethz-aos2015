@@ -578,6 +578,7 @@ handle_invoke(arch_registers_state_t *context, int argc)
 
         if (ObjType_EndPoint == to->type)
         {
+            printf("Type is endpoint\n");
             struct dcb *listener = to->u.endpoint.listener;
             assert(listener != NULL);
 
@@ -609,6 +610,7 @@ handle_invoke(arch_registers_state_t *context, int argc)
                 msg_words[7] = sa->arg10;
                 msg_words[8] = sa->arg11;
                 STATIC_ASSERT(LMP_MSG_LENGTH == 9, "Oops");
+                printf("msg_words loaded\n");
 
                         struct dispatcher_shared_generic *current_disp1 =
                             get_dispatcher_shared_generic(dcb_current->disp);
@@ -621,7 +623,8 @@ handle_invoke(arch_registers_state_t *context, int argc)
                 // try to deliver message
                 r.error = lmp_deliver(to, dcb_current, msg_words,
                                       length_words, send_cptr, send_bits);
-
+                
+                printf("error code after lmp_deliver: %d\n", r.error);
                 /* Switch to reciever upon successful delivery
                  * with sync flag, or (some cases of)
                  * unsuccessful delivery with yield flag */

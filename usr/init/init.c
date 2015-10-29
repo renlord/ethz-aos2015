@@ -94,8 +94,9 @@ int main(int argc, char *argv[])
     lmp_endpoint_setup(FIRSTEP_OFFSET, FIRSTEP_BUFLEN, &my_ep);
     
     lc.endpoint = my_ep; 
-    lmp_chan_register_recv(&lc, get_default_waitset(),
-        MKCLOSURE(recv_handler, &lc));
+    lc.local_cap = cap_initep;
+    struct waitset *ws = get_default_waitset();
+    lmp_chan_register_recv(&lc, ws, MKCLOSURE(recv_handler, &lc));
  
     printf("next:          0x%08x\n", my_ep->next);
     printf("prev:          0x%08x\n", my_ep->prev);
@@ -109,7 +110,11 @@ int main(int argc, char *argv[])
     // register receive handler 
     // go into messaging main loop
     
-    while(true);
+    while(true) {
+        printf("init.c waiting for event...\n");
+        event_dispatch(ws);
+        printf("init.c returned from handling event!\n");
+    }
     
     return EXIT_SUCCESS;
 }
