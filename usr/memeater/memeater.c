@@ -26,9 +26,11 @@ int main(int argc, char *argv[])
     lc.remote_cap = cap_initep; 
     
     char *buf = "Whatup!";
-    lmp_chan_send(&lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 8,
+    lmp_chan_send(&lc, 1 << 1, NULL_CAP, 8,
                   buf[0], buf[1], buf[2], buf[3], buf[4],
                   buf[5], buf[6], buf[7], buf[8]);       
+    
+    thread_yield_dispatcher(cap_initep);
     
     // errval_t err;
     // // TODO STEP 1: connect & send msg to init using syscall
