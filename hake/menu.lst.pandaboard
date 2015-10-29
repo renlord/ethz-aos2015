@@ -9,7 +9,8 @@ title	Barrelfish
 #root	(nd)
 kernel	/armv7/sbin/cpu_omap44xx loglevel=4
 module	/armv7/sbin/cpu_omap44xx
-module	/armv7/sbin/init_memtest
+module	/armv7/sbin/init
+module	/armv7/sbin/memeater
 
 # TODO: add different modules here for later milestones
 
