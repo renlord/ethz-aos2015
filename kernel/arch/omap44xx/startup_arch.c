@@ -709,7 +709,7 @@ void arm_kernel_startup(void)
         // 1
         struct cte *dispatcher_cap = caps_locate_slot(CNODE(init_st.taskcn), TASKCN_SLOT_DISPATCHER);
         err = caps_retype(ObjType_EndPoint, 0, &init_st.taskcn->cap, 
-                            TASKCN_SLOT_SELFEP, dispatcher_cap, false);
+                            TASKCN_SLOT_SELFEP, dispatcher_cap, true);
         if (err != SYS_ERR_OK) {
             printf("INIT.1 Error Code: %d\n", err);
         }
@@ -717,7 +717,7 @@ void arm_kernel_startup(void)
 
         dispatcher_cap = caps_locate_slot(CNODE(memeater_st.taskcn), TASKCN_SLOT_DISPATCHER);
         err = caps_retype(ObjType_EndPoint, 0, &memeater_st.taskcn->cap, 
-                            TASKCN_SLOT_SELFEP, dispatcher_cap, false);
+                            TASKCN_SLOT_SELFEP, dispatcher_cap, true);
         if (err != SYS_ERR_OK) {
             printf("MEMEATER.1 Error Code: %d\n", err);
         }
