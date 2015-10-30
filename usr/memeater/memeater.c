@@ -95,22 +95,34 @@ int main(int argc, char *argv[])
         printf("Could not allocate receive slot!\n");
         exit(-1);
     }
-    err = lmp_chan_send0(&lc, LMP_SEND_FLAGS_DEFAULT, my_ep->recv_slot);
+    
+    
+    struct waitset *ws = get_default_waitset();
+    waitset_init(ws);
+    
+    err = lmp_chan_register_recv(&lc, ws, MKCLOSURE(recv_handler, &lc));
+
+    if (err_is_fail(err)){
+        printf("Could not register receive handler! Err: %d\n", err);
+    }
+    
+    
+    
+    err = lmp_chan_send0(&lc, LMP_SEND_FLAGS_DEFAULT, cap_selfep);
     if (err_is_ok(err)) {
+        debug_printf("cap_selfep.cnode.address: %d\n", cap_selfep.cnode.address);
+        debug_printf("cap_selfep.slot: %d\n", cap_selfep.slot);
+        debug_printf("cap_initep.cnode.address: %d\n", cap_initep.cnode.address);
+        debug_printf("cap_initep.slot: %d\n", cap_initep.slot);
         debug_printf("p5 cap send from memeater to init success.\n");
     } else {
         debug_printf("p5 cap send from memeater to init FAIL. err code: %d\n", err);
         err_print_calltrace(err);
     }
-
-    struct waitset *ws = get_default_waitset();
-    waitset_init(ws);
-
-    err = lmp_chan_register_recv(&lc, ws, MKCLOSURE(recv_handler, &lc));
-    if (err_is_fail(err)){
-        printf("Could not register receive handler! Err: %d\n", err);
+    
+    while(true) {
+        event_dispatch(ws);
     }
-
     
     // errval_t err;
     // // TODO STEP 1: connect & send msg to init using syscall
