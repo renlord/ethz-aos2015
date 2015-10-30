@@ -20,7 +20,8 @@
 static void recv_handler(void *rpc);
 static void recv_handler(void *rpc) 
 {
-    struct lmp_chan *lc = (struct lmp_chan *) rpc->lc;
+    struct aos_rpc *chan = (struct aos_rpc *) rpc;
+    struct lmp_chan *lc = chan->lc;
     struct lmp_recv_msg msg = LMP_RECV_MSG_INIT;
     struct capref cap;
     errval_t err = lmp_chan_recv(lc, &msg, &cap);
@@ -72,22 +73,23 @@ errval_t aos_rpc_send_string(struct aos_rpc *chan, const char *string)
     return SYS_ERR_OK;
 }
 
-errval_t aos_rpc_get_ram_cap(struct aos_rpc *chan, size_t request_bits,
-                             struct capref *retcap, size_t *ret_bits)
+errval_t aos_rpc_get_ram_cap(struct aos_rpc *chan, size_t req_bits,
+                             struct capref *dest, size_t *ret_bits)
 {
-    // TODO: implement functionality to request a RAM capability over the
-    // given channel and wait until it is delivered.
+    // Send our endpoint capability
+    errval_t err = lmp_chan_send1(chan->lc, LMP_SEND_FLAGS_DEFAULT, chan->lc->local_cap, req_bits);
+    if (!err_is_ok(err)) {
+        debug_printf("p5 cap send from memeater to init FAIL. err code: %d\n", err);
+        err_print_calltrace(err);
+        exit(-1);
+    }
+
+    lmp_chan_register_recv(chan->lc, get_default_waitset(), 
+        MKCLOSURE(recv_handler, chan->lc));
     
-    errval_t err;
-
-    err = cap_create(*retcap, ObjType_RAM, request_bits);
-
-    if (err_is_fail(err)) {
-        return err;
-    }  
-       
-
-    return SYS_ERR_OK;
+    event_dispatch(get_default_waitset());
+    
+    return err;
 }
 
 errval_t aos_rpc_get_dev_cap(struct aos_rpc *chan, lpaddr_t paddr,
@@ -192,31 +194,27 @@ errval_t aos_rpc_init(struct aos_rpc *rpc)
     errval_t err;
   
     assert(rpc->lc != NULL);
-    assert(rpc->origin_listener != NULL);
-    // initialise the lmp channel 
-    err = lmp_chan_init(rpc->lc);
+    // assert(!capref_is_null(rpc->origin_listener));
 
-    if (err_is_fail(err)) {
-        debug_printf("aos_rpc_init FAIL. err: %d\n", err);
-    } else {
-        debug_printf("aos_rpc_init, you're ready for RPCs\n");
-    }
+    struct lmp_chan *lc = rpc->lc;
+    // initialise the lmp channel 
+    lmp_chan_init(lc);
 
     // initialise the wait set
     waitset_init(get_default_waitset());
 
-    err = lmp_chan_alloc_recv_slot(&lc);
+    err = lmp_chan_alloc_recv_slot(lc);
     if (err_is_fail(err)) {
         return err;
     }
 
     // registers the receive handler and enables listening
-    err = lmp_chan_register_recv(&loc, get_default_waitset(), MKCLOSURE(recv_handler, rpc));
+    err = lmp_chan_register_recv(lc, get_default_waitset(), MKCLOSURE(recv_handler, rpc));
     if (err_is_fail(err)) {
         return err;
     }
 
-    rpc->nprs = 0;
+    rpc->n_prs = 0;
 
     // register in paging state
     struct paging_state *st = get_current_paging_state();

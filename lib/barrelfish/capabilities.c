@@ -673,6 +673,7 @@ errval_t frame_alloc(struct capref *dest, size_t bytes, size_t *retbytes)
 {
     errval_t err = slot_alloc(dest);
     if (err_is_fail(err)) {
+        err_print_calltrace(err);        
         return err_push(err, LIB_ERR_SLOT_ALLOC);
     }
 

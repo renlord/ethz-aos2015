@@ -99,6 +99,7 @@ lvaddr_t buddy_alloc(struct paging_state *st,
 lvaddr_t buddy_alloc(struct paging_state *st,
                      struct node *cur, size_t req_size)
 {   
+    printf("buddy alloc called\n");
     // Pre-conditions
     assert((!cur->left && !cur->right) || (cur->left && cur->right));
     
@@ -237,6 +238,7 @@ static void allocate_pt(struct paging_state *st,
 {
     errval_t err;
     
+    debug_printf("allocate_pt called\n");
     // Relevant pagetable slots
     cslot_t l1_slot = ARM_L1_OFFSET(addr)>>2;
     cslot_t l2_slot =
@@ -318,18 +320,21 @@ void page_fault_handler(enum exception_type type, int subtype,
     
     /* Otherwise we need to allocate. If we're init, we do it directly,
        and otherwise we do it by RPC */
-    struct capref *frame_cap = NULL;
+    struct capref frame_cap = NULL_CAP;
     size_t req_size = BASE_PAGE_SIZE*ENTRIES_PER_FRAME;
     size_t ret_size;
     errval_t err;
-    
+   
     const char *obj = "init";
     const char *prog = disp_name();
-    if(strncmp(obj, prog, MIN(5,strlen(prog)))){
-        err = frame_alloc(frame_cap, req_size, &ret_size);
+
+    if(!strncmp(obj, prog, MIN(5,strlen(prog)))){
+        err = frame_alloc(&frame_cap, req_size, &ret_size);        
+        debug_printf("checkpoint 333\n");
     } else {
+        debug_printf("checkpoint 3\n");
         err = aos_rpc_get_ram_cap(current.chan, req_size,
-                                  frame_cap, &ret_size);
+                                  &frame_cap, &ret_size);
     }
     
     if (err != SYS_ERR_OK){
@@ -344,9 +349,9 @@ void page_fault_handler(enum exception_type type, int subtype,
                      req_size, addr, ret_size);
         exit(-1);
     }
-    
+     
     // Allocate L1 and L2 entries, if needed, and insert frame cap
-    allocate_pt(&current, (lvaddr_t)addr, *frame_cap);
+    allocate_pt(&current, (lvaddr_t)addr, frame_cap);
 }
 
 errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
@@ -488,9 +493,10 @@ errval_t paging_alloc(struct paging_state *st, void **buf, size_t bytes)
         debug_printf("arg st is NULL");
         return SYS_ERR_OK;
     }
-        
+    debug_printf("before st\n"); 
     current = *st;
 
+    debug_printf("after st\n"); 
     // find virtual address from AVL-tree
     *((lvaddr_t*)buf) = buddy_alloc(st, st->root, bytes);
     // TODO handle error                    

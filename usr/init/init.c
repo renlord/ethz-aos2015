@@ -21,10 +21,8 @@
 #include <barrelfish/lmp_chan.h>
 #include <barrelfish/aos_rpc.h>
 
-#define MAX_CLIENTS 50
 
-struct bootinfo *bi;
-static coreid_t my_core_id;
+#define MAX_CLIENTS 50
 struct mem_map {
     struct capref endpoint;
     uint32_t frames;
@@ -34,30 +32,79 @@ struct {
     struct mem_map clients[MAX_CLIENTS];
 } memory_handler;
 
+
+struct bootinfo *bi;
+static coreid_t my_core_id;
+
 void recv_handler(void *lc_in);
 void recv_handler(void *lc_in)
 {
-    debug_printf("recv_handler entered!\n");
-    struct lmp_chan *lc = (struct lmp_chan *) lc_in;
+    struct capref remote_cap;
+    struct lmp_chan *lc = (struct lmp_chan *)lc_in;
     struct lmp_recv_msg msg = LMP_RECV_MSG_INIT;
-    struct capref cap = NULL_CAP;
-    errval_t err = lmp_chan_recv(lc, &msg, &cap);
+    errval_t err = lmp_chan_recv(lc, &msg, &remote_cap);
+
+    printf("msg.buf.msglen: %d\n", msg.buf.msglen);
+    if (msg.buf.msglen > 1){
+        exit(-1); //FIXME
+    }
+    
+    uint32_t req_bits = *((uint32_t *)msg.buf.words[0]);
+    printf("req_bits: %d\n", req_bits);
+
     if (err_is_fail(err) && lmp_err_is_transient(err)) {
         // reregister
         lmp_chan_register_recv(lc, get_default_waitset(),
             MKCLOSURE(recv_handler, lc));
+        return; //FIXME
+    }
+    
+    if (capref_is_null(remote_cap)) {
         return;
     }
-
-    if (!capref_is_null(cap)) {
-        debug_printf("got a cap slot from memeater!\n");
-        lc->remote_cap = cap;        
-        char *buf = "INIT!";
-        err = lmp_chan_send(lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 8,
-                      buf[0], buf[1], buf[2], buf[3], buf[4],
-                      buf[5], buf[6], buf[7], buf[8]);       
+    
+    debug_printf("got a cap slot from memeater!\n");
+    lc->remote_cap = remote_cap;
+    
+    // struct lmp_chan *lc = (struct lmp_chan *) lc_in;
+    // struct lmp_recv_msg msg = LMP_RECV_MSG_INIT;
+    struct capref dest = NULL_CAP;
+    
+    // Update mapping
+    struct mem_map *m = memory_handler.clients;
+    uint32_t i;
+    for (i = 0; i < MAX_CLIENTS; i++, m = &memory_handler.clients[i])
+    {
+        if (capcmp(m->endpoint, remote_cap)){
+            break;
+        }
+        
+        if (m == NULL){
+            *m = (struct mem_map){ remote_cap, 0 };
+            break;
+        }
     }
-
+    
+    if (i == MAX_CLIENTS){
+        return;// LIB_ERR_RAM_ALLOC_MS_CONSTRAINTS;
+        // FIXME
+    }
+    
+    // Perform the allocation
+    err = memserv_alloc(&dest, req_bits, 0, 0); // TODO perhaps edit max_limit
+    if (err_is_fail(err)){
+        return;// err; // FIXME
+    }
+    
+    uint32_t ret_bits;
+    ret_bits = req_bits; // FIXME
+    
+    m->frames += (uint32_t)ret_bits; // TODO divide by framesize
+    
+    lmp_chan_send0(lc, LMP_SEND_FLAGS_DEFAULT, dest);
+    
+    debug_printf("init recv_handler entered!\n");
+    
     lmp_chan_register_recv(lc, get_default_waitset(),
         MKCLOSURE(recv_handler, lc_in));
 }

@@ -87,7 +87,7 @@ int main(int argc, char *argv[])
     if (!err_is_ok(err)) {
         debug_printf("p5 cap send from memeater to init FAIL. err code: %d\n", err);
         err_print_calltrace(err);
-        exit(-1)
+        exit(-1);
     }
     
     // Handle messages
