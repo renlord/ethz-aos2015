@@ -19,7 +19,8 @@
 static void recv_handler(void *rpc);
 static void recv_handler(void *rpc) 
 {
-    struct lmp_chan *lc = (struct lmp_chan *) rpc->lc;
+    struct aos_rpc *chan = (struct aos_rpc *) rpc;
+    struct lmp_chan *lc = chan->lc;
     struct lmp_recv_msg msg = LMP_RECV_MSG_INIT;
     struct capref cap;
     errval_t err = lmp_chan_recv(lc, &msg, &cap);
@@ -191,30 +192,26 @@ errval_t aos_rpc_init(struct aos_rpc *rpc)
     errval_t err;
   
     assert(rpc->lc != NULL);
-    assert(rpc->origin_listener != NULL);
-    // initialise the lmp channel 
-    err = lmp_chan_init(rpc->lc);
+    assert(!capref_is_null(rpc->origin_listener));
 
-    if (err_is_fail(err)) {
-        debug_printf("aos_rpc_init FAIL. err: %d\n", err);
-    } else {
-        debug_printf("aos_rpc_init, you're ready for RPCs\n");
-    }
+    struct lmp_chan *lc = rpc->lc;
+    // initialise the lmp channel 
+    lmp_chan_init(lc);
 
     // initialise the wait set
     waitset_init(get_default_waitset());
 
-    err = lmp_chan_alloc_recv_slot(&lc);
+    err = lmp_chan_alloc_recv_slot(lc);
     if (err_is_fail(err)) {
         return err;
     }
 
     // registers the receive handler and enables listening
-    err = lmp_chan_register_recv(&loc, get_default_waitset(), MKCLOSURE(recv_handler, rpc));
+    err = lmp_chan_register_recv(lc, get_default_waitset(), MKCLOSURE(recv_handler, rpc));
     if (err_is_fail(err)) {
         return err;
     }
 
-    rpc->nprs = 0;
+    rpc->n_prs = 0;
     return SYS_ERR_OK;
 }
