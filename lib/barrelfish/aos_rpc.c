@@ -14,10 +14,47 @@
 
 #include <barrelfish/aos_rpc.h>
 
+void recv_handler(void *lc_in);
+
+void recv_handler(void *lc_in) 
+{
+    struct lmp_chan *lc = (struct lmp_chan *) lc_in;
+    struct lmp_recv_msg msg = LMP_RECV_MSG_INIT;
+    
+    errval_t err = lmp_chan_recv(lc, &msg, &cap);
+    if (err_is_fail(err) && lmp_err_is_transient(err)) {
+        lmp_chan_register_recv(lc, get_default_waitset(), 
+            MKCLOSURE(recv_handler, lc));
+        return;
+    }
+}
+
 errval_t aos_rpc_send_string(struct aos_rpc *chan, const char *string)
 {
     // TODO: implement functionality to send a string over the given channel
     // and wait for a response.
+    struct lmp_chan *lc = &chan->lc;
+
+    if (strlen(string) > 9) {
+        debug_printf("aos_rpc_send_string currently does not support long strings T_T\n");
+    }
+    char buf[9];
+    memcpy(buf, string, 9);
+
+    errval_t err;
+    err = lmp_chan_send(lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 8, buf[0], 
+                            buf[1], buf[2], buf[3], buf[4],
+                            buf[5], buf[6], buf[7], buf[8]);
+
+    if (err_is_fail(err)) {
+        return err;
+    }
+
+    // TODO: Wait for Response....
+    struct waitset *ws = get_default_waitset();
+    waitset_init(ws);
+    
+    
     return SYS_ERR_OK;
 }
 
@@ -26,6 +63,15 @@ errval_t aos_rpc_get_ram_cap(struct aos_rpc *chan, size_t request_bits,
 {
     // TODO: implement functionality to request a RAM capability over the
     // given channel and wait until it is delivered.
+    errval_t err;
+    err = cap_create(*retcap, ObjType_RAM, request_bits);
+
+    if (err_is_fail(err)) {
+        return err;
+    }  
+    
+   
+
     return SYS_ERR_OK;
 }
 
