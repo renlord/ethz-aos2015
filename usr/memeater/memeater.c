@@ -9,6 +9,8 @@
 
 #define BUFSIZE (128UL*1024*1024)
 
+/* TODO This function is not prettified, but we'll probably just use the one
+        defined in init.c */
 void recv_handler(void *lc_in);
 void recv_handler(void *lc_in)
 {
@@ -39,85 +41,53 @@ int main(int argc, char *argv[])
     debug_printf("memeater started\n");
 
     errval_t err;
-    // err = lmp_ep_send0(cap_initep, LMP_SEND_FLAGS_DEFAULT, NULL_CAP);
-    // if (!err_is_ok(err)) {
-    //     debug_printf("part 3 syscall send failed!. Error Code: %d\n", err);
-    //     thread_yield_dispatcher(cap_initep);
-    // } else {
-    //     debug_printf("part 3 syscall send SUCCESSFUL!\n");
-    // }
-
-    // Part 3 & 4.
 
     const uint64_t FIRSTEP_BUFLEN = 21u;
 
+    // Get waitset for memeater
+    struct waitset *ws = get_default_waitset();
+    waitset_init(ws);
+
+    // Initialize LMP channel
     struct lmp_chan lc;
     lmp_chan_init(&lc);
 
-    printf("Setting up endpoint.\n");
-    struct lmp_endpoint *my_ep;
-    lmp_endpoint_setup(0, FIRSTEP_BUFLEN, &my_ep);
-    
-    lc.endpoint = my_ep;
-    lc.remote_cap = cap_initep;
-    
-    printf("Sending message.\n");
-    char *buf = "Whatup!";
-    err = lmp_chan_send(&lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 8,
-                  buf[0], buf[1], buf[2], buf[3], buf[4],
-                  buf[5], buf[6], buf[7], buf[8]);       
-    
-    if (err_is_ok(err)) {
-        debug_printf("part4 send successful\n");
-    } else {
-        debug_printf("part4 send fail. err:%d\n", err);
-    }
-
-    thread_yield_dispatcher(cap_initep);
-
-    // buf = "hello world!";
-    // lmp_chan_send(&lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 8,
-    //               buf[0], buf[1], buf[2], buf[3], buf[4],
-    //               buf[5], buf[6], buf[7], buf[8]);     
-
-    // if (err_is_ok(err)) {
-    //     debug_printf("part4_2 send successful\n");
-    // } else {
-    //     debug_printf("part4_2 send fail. err:%d\n", err);
-    // }
-
-    // thread_yield_dispatcher(cap_initep);
-
-
-    // part 5. 
-    err = lmp_chan_alloc_recv_slot(&lc);
-    if (err_is_fail(err)){
-        printf("Could not allocate receive slot!\n");
-        exit(-1);
-    }
-    
-    
-    struct waitset *ws = get_default_waitset();
-    waitset_init(ws);
-    
-    err = lmp_chan_register_recv(&lc, ws, MKCLOSURE(recv_handler, &lc));
-
-    if (err_is_fail(err)){
-        printf("Could not register receive handler! Err: %d\n", err);
-    }
-    
+    // Setup endpoint and allocate associated capability
     struct capref new_ep;
+    struct lmp_endpoint *my_ep;
     err = endpoint_create(FIRSTEP_BUFLEN, &new_ep, &my_ep);
     if(!err_is_ok(err)){
         debug_printf("Could not allocate new endpoint.\n");
         err_print_calltrace(err);
     }
     
+    // Set relevant members of LMP channel
+    lc.endpoint = my_ep;
+    lc.local_cap = cap_selfep; // <-- FIXME actually needed?
+    lc.remote_cap = cap_initep;
+    
+    // Allocate the slot for receiving
+    err = lmp_chan_alloc_recv_slot(&lc);
+    if (err_is_fail(err)){
+        printf("Could not allocate receive slot!\n");
+        exit(-1);
+    }
+    
+    // Register our receive handler
+    err = lmp_chan_register_recv(&lc, ws, MKCLOSURE(recv_handler, &lc));
+    if (err_is_fail(err)){
+        debug_printf("Could not register receive handler!\n");
+        exit(-1);
+    } else {
+        debug_printf("Allocated receive handler\n");
+    }
+    
+    // Send our endpoint capability
     err = lmp_chan_send0(&lc, LMP_SEND_FLAGS_DEFAULT, new_ep);
     if (err_is_ok(err)) {
-        debug_printf("cap_selfep.cnode.address: %d\n", cap_selfep.cnode.address);
-        debug_printf("cap_selfep.slot: %d\n", cap_selfep.slot);
-        debug_printf("cap_initep.cnode.address: %d\n", cap_initep.cnode.address);
+        debug_printf("new_ep.cnode.address: 0x%08x\n", new_ep.cnode.address);
+        debug_printf("new_ep.slot: %d\n", new_ep.slot);
+        debug_printf("cap_initep.cnode.address: 0x%08x\n", cap_initep.cnode.address);
         debug_printf("cap_initep.slot: %d\n", cap_initep.slot);
         debug_printf("p5 cap send from memeater to init success.\n");
     } else {
@@ -125,32 +95,10 @@ int main(int argc, char *argv[])
         err_print_calltrace(err);
     }
     
+    // Handle messages
     while(true) {
         event_dispatch(ws);
     }
     
-    // errval_t err;
-    // // TODO STEP 1: connect & send msg to init using syscall
-    // debug_printf("Sending Message to Init...\n");
-    // // We try to send 10 times. If it fails... it just fails.
-    // for (int i = 0; i < 10; i++) {
-    //     err = lmp_ep_send0(cap_initep, LMP_SEND_FLAGS_DEFAULT, NULL_CAP);
-    //     if (err_is_fail(err)) {
-    //         debug_printf("SEND FAIL... Err Code: %d\n", err);
-    //         err_print_calltrace(err);
-    //         thread_yield();
-    //     } else {
-    //         break;
-    //     }
-    // }
-    // if (!err_is_fail(err))
-    //     debug_printf("Message sent...\n");
-    // else
-    //     debug_printf("Message is NOT sent.");
-    // // TODO STEP 5: test memory allocation using memserv
-        
-    // thread_yield_dispatcher(cap_initep);
-
-    // TODO STEP 5: test memory allocation using memserv
     return 0;
 }

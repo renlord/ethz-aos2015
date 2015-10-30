@@ -40,27 +40,13 @@ void recv_handler(void *lc_in)
 
     if (!capref_is_null(cap)) {
         debug_printf("got a cap slot from memeater!\n");
-        struct lmp_endpoint *new_lmpep; //new endpoint
-        err = endpoint_create(DEFAULT_LMP_BUF_WORDS, &cap, &new_lmpep);
-        if (err_is_fail(err)) {
-            debug_printf("failed to create endpoint. err code: %d\n", err);
-        } else {
-            debug_printf("endpoint to memeater created!\n");
-        }
-        
-        lc->remote_cap = cap;
-        
+        lc->remote_cap = cap;        
         char *buf = "INIT!";
         err = lmp_chan_send(lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 8,
                       buf[0], buf[1], buf[2], buf[3], buf[4],
                       buf[5], buf[6], buf[7], buf[8]);       
-        
-        thread_yield_dispatcher(cap);
-        
     }
 
-    debug_printf("msg buflen %zu\n", msg.buf.msglen);
-    debug_printf("msg->words[0] = 0x%lx\n", msg.words[0]);
     lmp_chan_register_recv(lc, get_default_waitset(),
         MKCLOSURE(recv_handler, lc_in));
 }
@@ -151,16 +137,6 @@ int main(int argc, char *argv[])
     while(true) {
         event_dispatch(ws);
     }
-
-    // Part 5. Passing a Capability over LMP
-    err = lmp_chan_alloc_recv_slot(&lc);
-    if (err_is_fail(err)){
-        printf("Could not allocate receive slot!\n");
-        exit(-1);
-    }
-
-    
-
 
     return EXIT_SUCCESS;
 }
