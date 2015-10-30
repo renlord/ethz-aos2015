@@ -59,6 +59,7 @@ void recv_handler(void *lc_in)
     }
 
     if (!capref_is_null(cap)) {
+        debug_printf("got a cap slot from memeater!\n");
         struct lmp_endpoint *new_lmpep; //new endpoint
         err = endpoint_create(DEFAULT_LMP_BUF_WORDS, &cap, &new_lmpep);
         if (err_is_fail(err)) {
@@ -193,6 +194,14 @@ int main(int argc, char *argv[])
     debug_printf("%c\n", msg.words[3]);
 
     // Part 5. Passing a Capability over LMP
+    err = lmp_chan_alloc_recv_slot(&lc);
+    if (err_is_fail(err)){
+        printf("Could not allocate receive slot!\n");
+        exit(-1);
+    }
+
+    
+
 
     return EXIT_SUCCESS;
 }

@@ -75,14 +75,29 @@ int main(int argc, char *argv[])
 
     thread_yield_dispatcher(cap_initep);
 
-    // part 5. 
-    err = lmp_chan_alloc_recv_slot(&lc);
-    if (err_is_fail(err)){
-        printf("Could not allocate receive slot!\n");
-        exit(-1);
+    buf = "hello world!";
+    lmp_chan_send(&lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 8,
+                  buf[0], buf[1], buf[2], buf[3], buf[4],
+                  buf[5], buf[6], buf[7], buf[8]);     
+
+    if (err_is_ok(err)) {
+        debug_printf("part4_2 send successful\n");
+    } else {
+        debug_printf("part4_2 send fail. err:%d\n", err);
     }
-    assert(!capref_is_null(my_ep->recv_slot));
-    err = lmp_chan_send0(&lc, LMP_SEND_FLAGS_DEFAULT, my_ep->recv_slot);
+
+    thread_yield_dispatcher(cap_initep);
+
+
+    // part 5. 
+    struct capref to_memeater;
+    struct lmp_endpoint *to_memeater_ep;
+    err = endpoint_create(DEFAULT_LMP_BUF_WORDS, &to_memeater, &to_memeater_ep);
+    if (err_is_fail(err)) {
+        debug_printf("failed to create ep cap. Err: %d\n", err);
+    }
+    //err = lmp_chan_send0(&lc, LMP_SEND_FLAGS_DEFAULT, my_ep->recv_slot);
+    err = lmp_chan_send0(&lc, LMP_SEND_FLAGS_DEFAULT, to_memeater);
     if (err_is_ok(err)) {
         debug_printf("p5 cap send from memeater to init success.\n");
     } else {
