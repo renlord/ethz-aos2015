@@ -39,13 +39,13 @@ int main(int argc, char *argv[])
     debug_printf("memeater started\n");
 
     errval_t err;
-    err = lmp_ep_send0(cap_initep, LMP_SEND_FLAGS_DEFAULT, NULL_CAP);
-    if (!err_is_ok(err)) {
-        debug_printf("part 3 syscall send failed!. Error Code: %d\n", err);
-        thread_yield_dispatcher(cap_initep);
-    } else {
-        debug_printf("part 3 syscall send SUCCESSFUL!\n");
-    }
+    // err = lmp_ep_send0(cap_initep, LMP_SEND_FLAGS_DEFAULT, NULL_CAP);
+    // if (!err_is_ok(err)) {
+    //     debug_printf("part 3 syscall send failed!. Error Code: %d\n", err);
+    //     thread_yield_dispatcher(cap_initep);
+    // } else {
+    //     debug_printf("part 3 syscall send SUCCESSFUL!\n");
+    // }
 
     // Part 3 & 4.
 
@@ -59,11 +59,11 @@ int main(int argc, char *argv[])
     lmp_endpoint_setup(0, FIRSTEP_BUFLEN, &my_ep);
     
     lc.endpoint = my_ep;
-    lc.remote_cap = cap_initep; 
+    lc.remote_cap = cap_initep;
     
     printf("Sending message.\n");
     char *buf = "Whatup!";
-    lmp_chan_send(&lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 8,
+    err = lmp_chan_send(&lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 8,
                   buf[0], buf[1], buf[2], buf[3], buf[4],
                   buf[5], buf[6], buf[7], buf[8]);       
     
@@ -134,7 +134,7 @@ int main(int argc, char *argv[])
     //     debug_printf("Message is NOT sent.");
     // // TODO STEP 5: test memory allocation using memserv
         
-    thread_yield_dispatcher(cap_initep);
+    // thread_yield_dispatcher(cap_initep);
 
     // TODO STEP 5: test memory allocation using memserv
     return 0;
