@@ -106,9 +106,14 @@ int main(int argc, char *argv[])
         printf("Could not register receive handler! Err: %d\n", err);
     }
     
+    struct capref new_ep;
+    err = endpoint_create(FIRSTEP_BUFLEN, &new_ep, &my_ep);
+    if(!err_is_ok(err)){
+        debug_printf("Could not allocate new endpoint.\n");
+        err_print_calltrace(err);
+    }
     
-    
-    err = lmp_chan_send0(&lc, LMP_SEND_FLAGS_DEFAULT, cap_selfep);
+    err = lmp_chan_send0(&lc, LMP_SEND_FLAGS_DEFAULT, new_ep);
     if (err_is_ok(err)) {
         debug_printf("cap_selfep.cnode.address: %d\n", cap_selfep.cnode.address);
         debug_printf("cap_selfep.slot: %d\n", cap_selfep.slot);
