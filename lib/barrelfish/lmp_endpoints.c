@@ -396,6 +396,7 @@ errval_t lmp_endpoint_recv(struct lmp_endpoint *ep, struct lmp_recv_buf *buf,
         disp_enable(handle);
         return LIB_ERR_NO_LMP_MSG;
     }
+    debug_printf("Could receive.\n");
 
     uint32_t pos = ep->k.consumed;
     assert(pos < ep->buflen);

@@ -110,9 +110,7 @@ int main(int argc, char *argv[])
         abort();
     }
 
-    char *c = (char*)malloc(2);
-    *c = 'c';
-    
+
     // TODO (milestone 4): Implement a system to manage the device memory
     // that's referenced by the capability in TASKCN_SLOT_IO in the task
     // cnode. Additionally, export the functionality of that system to other
@@ -137,14 +135,19 @@ int main(int argc, char *argv[])
      * buffer length corresponds DEFAULT_LMP_BUF_WORDS (excluding the kernel 
      * sentinel word).
      */
-    const uint64_t FIRSTEP_BUFLEN = 21u;
-    const uint64_t FIRSTEP_OFFSET = (33472u + 56u);
+    uint32_t FIRSTEP_BUFLEN = 21u;
+    uint32_t FIRSTEP_OFFSET = (33472 + 56);
+
+    printf("FIRSTEP_OFFSET: %d\n", FIRSTEP_OFFSET);
 
     struct lmp_endpoint *my_ep;
-    lmp_endpoint_setup(FIRSTEP_OFFSET, FIRSTEP_BUFLEN, &my_ep);
+    printf("pre my_ep: 0x%08x\n", my_ep);
+    lmp_endpoint_setup(0, FIRSTEP_BUFLEN, &my_ep);
+    printf("post my_ep: 0x%08x\n", my_ep);
     
-    lc.endpoint = my_ep; 
-    lc.local_cap = cap_initep;
+    
+    lc.endpoint = my_ep;
+    lc.local_cap = cap_selfep;
     
     // allocate slot for incoming capability from memeater
     // err = lmp_chan_alloc_recv_slot(&lc);
@@ -169,12 +172,25 @@ int main(int argc, char *argv[])
     printf("seen:          0x%08x\n", my_ep->seen);
     printf("k:             0x%08x\n", my_ep->k);
 
+    // struct lmp_recv_buf recv_buf;
+    struct lmp_recv_msg msg = LMP_RECV_MSG_INIT;
+    
     // go into messaging main loop    
     while(true) {
-        printf("init.c waiting for event...\n");
-        event_dispatch(ws);
-        printf("init.c returned from handling event!\n");
+        err = lmp_chan_recv(&lc, &msg, NULL);
+        if(!err_is_fail(err)){
+            printf("received!\n");
+            break;
+        }
+
+        for (uint32_t i = 0; i < (1UL<<25); i++)__asm volatile("nop");
     }
+    
+    debug_printf("msg->words[0] = 0x%lx\n", msg.words[0]);
+    debug_printf("%c\n", msg.words[0]);
+    debug_printf("%c\n", msg.words[1]);
+    debug_printf("%c\n", msg.words[2]);
+    debug_printf("%c\n", msg.words[3]);
 
     // Part 5. Passing a Capability over LMP
 
