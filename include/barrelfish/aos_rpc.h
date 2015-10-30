@@ -15,11 +15,18 @@
 #ifndef _LIB_BARRELFISH_AOS_MESSAGES_H
 #define _LIB_BARRELFISH_AOS_MESSAGES_H
 
+#include <stdlib.h>
+#include <string.h>
 #include <barrelfish/barrelfish.h>
+#include <barrelfish/lmp_chan.h>
+#include <barrelfish/lmp_endpoints.h>
+#include <barrelfish/debug.h>
+
 
 struct aos_rpc {
     // TODO: add state for your implementation
-    struct lmp_chan lc; // lmp channel
+    struct lmp_chan *lc; // lmp channel
+    struct capref origin_listener; 
     size_t n_prs; //number of pending replies
 };
 

@@ -19,6 +19,7 @@
 #include <barrelfish/dispatcher_arch.h>
 #include <barrelfish/debug.h>
 #include <barrelfish/lmp_chan.h>
+#include <barrelfish/aos_rpc.h>
 
 #define MAX_CLIENTS 50
 
@@ -142,6 +143,17 @@ int main(int argc, char *argv[])
     if (err_is_fail(err)){
         printf("Could not register receive handler!\n");
         exit(-1);
+    }
+
+    struct aos_rpc init_rpc = {
+        .lc = &lc,
+        .origin_listener = NULL_CAP,
+        .n_prs = 0,
+    };
+
+    err = aos_rpc_init(&init_rpc);
+    if (err_is_fail(err)) {
+        debug_printf("aos_rpc_init test. err:%d\n");
     }
 
     while(true) {
