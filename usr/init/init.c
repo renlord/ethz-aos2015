@@ -119,7 +119,7 @@ int main(int argc, char *argv[])
     lc.endpoint = my_ep;
     lc.local_cap = cap_selfep;
     
-    // allocate slot for incoming capabilites
+    // allocate slot for incoming capability from memeater
     err = lmp_chan_alloc_recv_slot(&lc);
     if (err_is_fail(err)){
         printf("Could not allocate receive slot!\n");
@@ -147,11 +147,6 @@ int main(int argc, char *argv[])
     
     // go into messaging main loop    
     while(true) {
-        printf("0x%08x: ep->k.buf[pos]: %d%d%d%d%d%d%d%d\n", my_ep,
-               my_ep->k.buf[0], my_ep->k.buf[1], my_ep->k.buf[2], my_ep->k.buf[3],
-               my_ep->k.buf[4], my_ep->k.buf[5], my_ep->k.buf[6], my_ep->k.buf[7]
-               );
-        
         err = lmp_chan_recv(&lc, &msg, NULL);
         if(!err_is_fail(err)){
             printf("received!\n");
@@ -166,11 +161,8 @@ int main(int argc, char *argv[])
     debug_printf("%c\n", msg.words[1]);
     debug_printf("%c\n", msg.words[2]);
     debug_printf("%c\n", msg.words[3]);
-    // char buf[20];
-    // for(int32_t i = 0; i < recv_buf.msglen; i++){
-    //     buf[i] = recv_buf.words[i];
-    // }
-    // printf("buf: %s\n", buf);
-    
+
+    // Part 5. Passing a Capability over LMP
+
     return EXIT_SUCCESS;
 }
