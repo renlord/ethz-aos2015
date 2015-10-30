@@ -15,39 +15,30 @@
 #include <barrelfish/aos_rpc.h>
 #include <barrelfish/paging.h>
 
-#define FIRSTEP_BUFLEN          21u
+#define FIRSTEP_BUFLEN 21u
 
-static void recv_handler(void *rpc);
-static void recv_handler(void *rpc) 
+static void recv_cap(void *rpc_void);
+static void recv_cap(void *rpc_void) 
 {
-    struct aos_rpc *chan = (struct aos_rpc *) rpc;
-    struct lmp_chan *lc = chan->lc;
+    // Retrieve message with frame cap
+    struct aos_rpc *rpc = (struct aos_rpc *)rpc_void;
     struct lmp_recv_msg msg = LMP_RECV_MSG_INIT;
     struct capref cap;
-    errval_t err = lmp_chan_recv(lc, &msg, &cap);
-    if (err_is_fail(err) && lmp_err_is_transient(err)) {
-        lmp_chan_register_recv(lc, get_default_waitset(), 
-            MKCLOSURE(recv_handler, lc));
+    errval_t err = lmp_chan_recv(&(rpc->lc), &msg, &cap);
+
+    // If retrieval fails we just return
+    if (err_is_fail(err) || capref_is_null(cap)) {
+        debug_printf("Could not retrieve frame cap.\n");
         return;
     }
-
-    char buf[msg.buf.buflen];
-    memcpy(buf, (const void *) msg.buf.words, msg.buf.msglen);
-    if (!capref_is_null(cap)) {
-        // TODO: Final parameter indicates the return bitsize.
-        err = aos_rpc_get_ram_cap(rpc, atoi((const char *) (msg.buf.words)), &cap, NULL);
-        if (err_is_fail(err)) {
-            debug_printf("fail to call get ram. err: %d\n", err);
-        } 
-             
-    }
+    
+    // Store cap and return
+    rpc->return_cap = cap;
 }
 
-errval_t aos_rpc_send_string(struct aos_rpc *chan, const char *string)
+errval_t aos_rpc_send_string(struct aos_rpc *rpc, const char *string)
 {
-    // TODO: implement functionality to send a string over the given channel
-    // and wait for a response.
-    struct lmp_chan *lc = chan->lc;
+    struct lmp_chan lc = rpc->lc;
 
     if (strlen(string) > 9) {
         debug_printf("aos_rpc_send_string currently does not support long strings T_T\n");
@@ -56,7 +47,7 @@ errval_t aos_rpc_send_string(struct aos_rpc *chan, const char *string)
     memcpy(buf, string, 9);
 
     errval_t err;
-    err = lmp_chan_send(lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 8, buf[0], 
+    err = lmp_chan_send(&lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 8, buf[0], 
                             buf[1], buf[2], buf[3], buf[4],
                             buf[5], buf[6], buf[7], buf[8]);
 
@@ -73,20 +64,27 @@ errval_t aos_rpc_send_string(struct aos_rpc *chan, const char *string)
     return SYS_ERR_OK;
 }
 
-errval_t aos_rpc_get_ram_cap(struct aos_rpc *chan, size_t req_bits,
+/**
+ * FIXME This function fails when called twice in a row because init
+ * does not exit its receiver function before the next msg is sent.
+ */
+errval_t aos_rpc_get_ram_cap(struct aos_rpc *rpc, size_t req_bits,
                              struct capref *dest, size_t *ret_bits)
 {
     // Send our endpoint capability
-    errval_t err = lmp_chan_send1(chan->lc, LMP_SEND_FLAGS_DEFAULT, chan->lc->local_cap, req_bits);
-    if (!err_is_ok(err)) {
-        debug_printf("p5 cap send from memeater to init FAIL. err code: %d\n", err);
+    errval_t err = lmp_chan_send1(&(rpc->lc), LMP_SEND_FLAGS_DEFAULT,
+                                  rpc->lc.local_cap, req_bits);
+    
+    if (err_is_fail(err)) {
+        debug_printf("Could not send msg to init.\n", err);
         err_print_calltrace(err);
         exit(-1);
     }
 
-    lmp_chan_register_recv(chan->lc, get_default_waitset(), 
-        MKCLOSURE(recv_handler, chan->lc));
-    
+    // Listen for response from init. When recv_cap returns,
+    // cap should be in rpc->return_cap
+    lmp_chan_register_recv(&rpc->lc, get_default_waitset(),
+        MKCLOSURE(recv_cap, &rpc->lc));    
     event_dispatch(get_default_waitset());
     
     return err;
@@ -190,31 +188,48 @@ errval_t aos_rpc_delete(struct aos_rpc *chan, char *path)
  */
 errval_t aos_rpc_init(struct aos_rpc *rpc)
 {
-    // TODO: Initialize given rpc channel
-    errval_t err;
-  
-    assert(rpc->lc != NULL);
-    // assert(!capref_is_null(rpc->origin_listener));
+    // const uint64_t FIRSTEP_BUFLEN = 21u;
+    // Get waitset for memeater
+    struct waitset *ws = get_default_waitset();
+    waitset_init(ws);
 
-    struct lmp_chan *lc = rpc->lc;
-    // initialise the lmp channel 
-    lmp_chan_init(lc);
 
-    // initialise the wait set
-    waitset_init(get_default_waitset());
+    // Initialize LMP channel
+    lmp_chan_init(&(rpc->lc));
+    
+    // Setup endpoint and allocate associated capability
+    struct capref new_ep;
+    struct lmp_endpoint *my_ep;
+    
 
-    err = lmp_chan_alloc_recv_slot(lc);
-    if (err_is_fail(err)) {
+    errval_t err = endpoint_create(FIRSTEP_BUFLEN, &new_ep, &my_ep);
+
+    if(err_is_fail(err)){
+        debug_printf("Could not allocate new endpoint.\n");
+        err_print_calltrace(err);
         return err;
     }
 
-    // registers the receive handler and enables listening
-    err = lmp_chan_register_recv(lc, get_default_waitset(), MKCLOSURE(recv_handler, rpc));
-    if (err_is_fail(err)) {
+    // Set relevant members of LMP channel
+    rpc->lc.endpoint = my_ep;
+    rpc->lc.local_cap = new_ep; // <-- FIXME actually needed?
+    rpc->lc.remote_cap = cap_initep;
+    
+    // Allocate the slot for receiving
+    err = lmp_chan_alloc_recv_slot(&rpc->lc);
+    if (err_is_fail(err)){
+        debug_printf("Could not allocate receive slot!\n");
+        err_print_calltrace(err);
+        exit(-1);
+    }
+    
+    // Register our receive handler
+    err = lmp_chan_register_recv(&rpc->lc, ws, MKCLOSURE(recv_cap, &rpc->lc));
+    if (err_is_fail(err)){
+        debug_printf("Could not register receive handler!\n");
+        err_print_calltrace(err);
         return err;
     }
-
-    rpc->n_prs = 0;
 
     // register in paging state
     struct paging_state *st = get_current_paging_state();

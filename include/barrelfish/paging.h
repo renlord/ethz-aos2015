@@ -71,7 +71,7 @@ struct paging_state {
     struct capref frame_caps[NO_OF_FRAMES];
     struct capref *next_frame;
     struct capref guard_cap;
-    struct aos_rpc *chan;
+    struct aos_rpc *rpc;
 };
 
 struct thread;

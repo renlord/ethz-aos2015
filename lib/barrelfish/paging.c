@@ -99,7 +99,6 @@ lvaddr_t buddy_alloc(struct paging_state *st,
 lvaddr_t buddy_alloc(struct paging_state *st,
                      struct node *cur, size_t req_size)
 {   
-    printf("buddy alloc called\n");
     // Pre-conditions
     assert((!cur->left && !cur->right) || (cur->left && cur->right));
     
@@ -238,7 +237,6 @@ static void allocate_pt(struct paging_state *st,
 {
     errval_t err;
     
-    debug_printf("allocate_pt called\n");
     // Relevant pagetable slots
     cslot_t l1_slot = ARM_L1_OFFSET(addr)>>2;
     cslot_t l2_slot =
@@ -329,12 +327,11 @@ void page_fault_handler(enum exception_type type, int subtype,
     const char *prog = disp_name();
 
     if(!strncmp(obj, prog, MIN(5,strlen(prog)))){
-        err = frame_alloc(&frame_cap, req_size, &ret_size);        
-        debug_printf("checkpoint 333\n");
+        err = frame_alloc(&frame_cap, BASE_PAGE_SIZE*ENTRIES_PER_FRAME,
+                &ret_size);
     } else {
-        debug_printf("checkpoint 3\n");
-        err = aos_rpc_get_ram_cap(current.chan, req_size,
-                                  &frame_cap, &ret_size);
+        err = aos_rpc_get_ram_cap(current.rpc,
+                BASE_PAGE_SIZE*ENTRIES_PER_FRAME, &frame_cap, &ret_size);
     }
     
     if (err != SYS_ERR_OK){
@@ -493,10 +490,9 @@ errval_t paging_alloc(struct paging_state *st, void **buf, size_t bytes)
         debug_printf("arg st is NULL");
         return SYS_ERR_OK;
     }
-    debug_printf("before st\n"); 
+
     current = *st;
 
-    debug_printf("after st\n"); 
     // find virtual address from AVL-tree
     *((lvaddr_t*)buf) = buddy_alloc(st, st->root, bytes);
     // TODO handle error                    

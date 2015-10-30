@@ -25,7 +25,7 @@
 #define MAX_CLIENTS 50
 struct mem_map {
     struct capref endpoint;
-    uint32_t frames;
+    uint32_t bytes;
 };
 
 struct {
@@ -36,6 +36,24 @@ struct {
 struct bootinfo *bi;
 static coreid_t my_core_id;
 
+void debug_print_mem(void);
+void debug_print_mem(void){
+    struct mem_map *m = memory_handler.clients;
+    
+    for (uint32_t i = 0;
+         i < MAX_CLIENTS;
+         i++, m = &memory_handler.clients[i])
+    {
+        if (capref_is_null(m->endpoint)){
+            break;
+        }
+        
+        printf("mapping %d: (%d, %d)\n",
+               i, m->endpoint.cnode.address_bits, m->bytes);
+    }
+    
+}
+
 void recv_handler(void *lc_in);
 void recv_handler(void *lc_in)
 {
@@ -44,26 +62,25 @@ void recv_handler(void *lc_in)
     struct lmp_recv_msg msg = LMP_RECV_MSG_INIT;
     errval_t err = lmp_chan_recv(lc, &msg, &remote_cap);
 
-    printf("msg.buf.msglen: %d\n", msg.buf.msglen);
     if (msg.buf.msglen > 1){
-        exit(-1); //FIXME
+        debug_printf("Bad msg for init.\n");
+        return; // FIXME notify caller
     }
     
-    uint32_t req_bits = *((uint32_t *)msg.buf.words[0]);
-    printf("req_bits: %d\n", req_bits);
+    uint32_t req_bits = msg.buf.words[0];
 
     if (err_is_fail(err) && lmp_err_is_transient(err)) {
         // reregister
         lmp_chan_register_recv(lc, get_default_waitset(),
             MKCLOSURE(recv_handler, lc));
-        return; //FIXME
+        return; // FIXME notify caller
     }
     
     if (capref_is_null(remote_cap)) {
+        debug_printf("Received endpoint cap was null.\n");
         return;
     }
     
-    debug_printf("got a cap slot from memeater!\n");
     lc->remote_cap = remote_cap;
     
     // struct lmp_chan *lc = (struct lmp_chan *) lc_in;
@@ -79,34 +96,36 @@ void recv_handler(void *lc_in)
             break;
         }
         
-        if (m == NULL){
+        if (capref_is_null(m->endpoint)){
             *m = (struct mem_map){ remote_cap, 0 };
             break;
         }
     }
     
     if (i == MAX_CLIENTS){
-        return;// LIB_ERR_RAM_ALLOC_MS_CONSTRAINTS;
-        // FIXME
+        debug_printf("No more space for clients.\n");
+        return; // FIXME
     }
-    
+
     // Perform the allocation
-    err = memserv_alloc(&dest, req_bits, 0, 0); // TODO perhaps edit max_limit
+    size_t ret_bits;
+    err = frame_alloc(&dest, req_bits, &ret_bits);
     if (err_is_fail(err)){
+        debug_printf("Failed memserv allocation.\n");
+        err_print_calltrace(err);
         return;// err; // FIXME
     }
     
-    uint32_t ret_bits;
-    ret_bits = req_bits; // FIXME
+    debug_print_mem();    
     
-    m->frames += (uint32_t)ret_bits; // TODO divide by framesize
-    
-    lmp_chan_send0(lc, LMP_SEND_FLAGS_DEFAULT, dest);
-    
-    debug_printf("init recv_handler entered!\n");
-    
+    // Our program fails in this part because we yield processor
+    // when responding to caller, which then may break the program
+    // by sending a new message befor we get to call `event_dispatch()`
     lmp_chan_register_recv(lc, get_default_waitset(),
         MKCLOSURE(recv_handler, lc_in));
+
+    lmp_chan_send0(lc, 0, dest);
+    // TODO WHY RACE CONDITION HERE???
 }
 
 int main(int argc, char *argv[])
@@ -192,61 +211,14 @@ int main(int argc, char *argv[])
         exit(-1);
     }
 
-    struct aos_rpc init_rpc = {
-        .lc = &lc,
-        .origin_listener = NULL_CAP,
-        .n_prs = 0,
-    };
 
-    err = aos_rpc_init(&init_rpc);
-    if (err_is_fail(err)) {
-        debug_printf("aos_rpc_init test. err:%d\n");
+    for (uint32_t i = 0; i < MAX_CLIENTS; i++) {
+        memory_handler.clients[i] = (struct mem_map){ NULL_CAP, 0 };
     }
-
+    
     while(true) {
         event_dispatch(ws);
     }
 
     return EXIT_SUCCESS;
-}
-
-errval_t request_memory(struct capref endpoint, struct capref *dest,
-                        uint8_t req_bits, uint8_t *ret_bits);
-errval_t request_memory(struct capref endpoint, struct capref *dest,
-                        uint8_t req_bits, uint8_t *ret_bits)
-{    
-    // Check if dest is pointing anywhere
-    if (dest == NULL) {
-        return SYS_ERR_LMP_NO_TARGET;
-    }
-        
-    // Update mapping
-    struct mem_map *m = memory_handler.clients;
-    uint32_t i;
-    for (i = 0; i < MAX_CLIENTS; i++, m = &memory_handler.clients[i])
-    {
-        if (capcmp(m->endpoint, endpoint)){
-            break;
-        }
-        
-        if (m == NULL){
-            *m = (struct mem_map){ endpoint, 0 };
-            break;
-        }
-    }
-    
-    if (i == MAX_CLIENTS){
-        return LIB_ERR_RAM_ALLOC_MS_CONSTRAINTS;
-    }
-    
-    // Perform the allocation
-    errval_t err = memserv_alloc(dest, req_bits, 0, 0); // TODO perhaps edit max_limit
-    if (err_is_fail(err)){
-        return err;
-    }
-    
-    *ret_bits = req_bits; // FIXME
-    
-    m->frames += (uint32_t)ret_bits; // TODO divide by framesize
-    return err;
 }

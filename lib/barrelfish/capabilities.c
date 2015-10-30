@@ -655,6 +655,7 @@ errval_t endpoint_create(size_t buflen, struct capref *retcap,
                          struct lmp_endpoint **retep)
 {
     errval_t err = slot_alloc(retcap);
+    
     if (err_is_fail(err)) {
         return err_push(err, LIB_ERR_SLOT_ALLOC);
     }

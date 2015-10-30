@@ -440,7 +440,6 @@ errval_t lmp_deliver_payload(struct capability *ep, struct dcb *send,
     /* Transfer the msg */
     for(int i = 0; i < payload_len; i++) {
         recv_ep->buf[pos] = payload[i];
-        printf("0x%08x: next char: '%c'\n", recv_ep, (char)payload[i]);
         if (++pos == epbuflen) {
             pos = 0;
         }

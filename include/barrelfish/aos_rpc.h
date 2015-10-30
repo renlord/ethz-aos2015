@@ -25,8 +25,8 @@
 
 struct aos_rpc {
     // TODO: add state for your implementation
-    struct lmp_chan *lc; // lmp channel
-    struct capref origin_listener; 
+    struct lmp_chan lc; // lmp channel
+    struct capref return_cap; 
     size_t n_prs; //number of pending replies
 };
 

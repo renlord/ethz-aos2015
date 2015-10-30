@@ -578,7 +578,6 @@ handle_invoke(arch_registers_state_t *context, int argc)
 
         if (ObjType_EndPoint == to->type)
         {
-            printf("Type is endpoint\n");
             struct dcb *listener = to->u.endpoint.listener;
             assert(listener != NULL);
 
