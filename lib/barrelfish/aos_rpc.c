@@ -14,11 +14,12 @@
 
 #include <barrelfish/aos_rpc.h>
 
-void recv_handler(void *lc_in);
+#define FIRSTEP_BUFLEN          21u
 
-void recv_handler(void *lc_in) 
+static void recv_handler(void *rpc);
+static void recv_handler(void *rpc) 
 {
-    struct lmp_chan *lc = (struct lmp_chan *) lc_in;
+    struct lmp_chan *lc = (struct lmp_chan *) rpc->lc;
     struct lmp_recv_msg msg = LMP_RECV_MSG_INIT;
     struct capref cap;
     errval_t err = lmp_chan_recv(lc, &msg, &cap);
@@ -28,11 +29,15 @@ void recv_handler(void *lc_in)
         return;
     }
 
-    if (!capref_is_null(&cap)) {
-        err = aos_rpc_get_ram_cap(lc, atoi(msg->buf), &cap, NULL);
+    char buf[msg.buf.buflen];
+    memcpy(buf, (const void *) msg.buf.words, msg.buf.msglen);
+    if (!capref_is_null(cap)) {
+        // TODO: Final parameter indicates the return bitsize.
+        err = aos_rpc_get_ram_cap(rpc, atoi((const char *) (msg.buf.words)), &cap, NULL);
         if (err_is_fail(err)) {
-            debug_printf("fail to call get ram\n");
-        }      
+            debug_printf("fail to call get ram. err: %d\n", err);
+        } 
+             
     }
 }
 
@@ -40,7 +45,7 @@ errval_t aos_rpc_send_string(struct aos_rpc *chan, const char *string)
 {
     // TODO: implement functionality to send a string over the given channel
     // and wait for a response.
-    struct lmp_chan *lc = &chan->lc;
+    struct lmp_chan *lc = chan->lc;
 
     if (strlen(string) > 9) {
         debug_printf("aos_rpc_send_string currently does not support long strings T_T\n");
@@ -55,6 +60,12 @@ errval_t aos_rpc_send_string(struct aos_rpc *chan, const char *string)
 
     if (err_is_fail(err)) {
         return err;
+    } 
+
+    // Dispatches to next event on given waitset. 
+    err = event_dispatch(get_default_waitset());
+    if (err_is_fail(err)) {
+        return err;
     }
     
     return SYS_ERR_OK;
@@ -65,14 +76,15 @@ errval_t aos_rpc_get_ram_cap(struct aos_rpc *chan, size_t request_bits,
 {
     // TODO: implement functionality to request a RAM capability over the
     // given channel and wait until it is delivered.
+    
     errval_t err;
+
     err = cap_create(*retcap, ObjType_RAM, request_bits);
 
     if (err_is_fail(err)) {
         return err;
     }  
-    
-    
+       
 
     return SYS_ERR_OK;
 }
@@ -168,21 +180,41 @@ errval_t aos_rpc_delete(struct aos_rpc *chan, char *path)
     return SYS_ERR_OK;
 }
 
+/**
+ * The caller should configure
+ * the right LMP Channel configs prior to calling this init
+ * function.
+ */
 errval_t aos_rpc_init(struct aos_rpc *rpc)
 {
     // TODO: Initialize given rpc channel
     errval_t err;
+  
+    assert(rpc->lc != NULL);
+    assert(rpc->origin_listener != NULL);
+    // initialise the lmp channel 
+    err = lmp_chan_init(rpc->lc);
 
-    struct lmp_endpoint *my_ep; 
-    err = lmp_endpoint_setup(0, FIRSTEP_BUFLEN, &my_ep);
-    
     if (err_is_fail(err)) {
         debug_printf("aos_rpc_init FAIL. err: %d\n", err);
     } else {
         debug_printf("aos_rpc_init, you're ready for RPCs\n");
     }
 
-    waitset_init(get_default_waitset);
+    // initialise the wait set
+    waitset_init(get_default_waitset());
 
+    err = lmp_chan_alloc_recv_slot(&lc);
+    if (err_is_fail(err)) {
+        return err;
+    }
+
+    // registers the receive handler and enables listening
+    err = lmp_chan_register_recv(&loc, get_default_waitset(), MKCLOSURE(recv_handler, rpc));
+    if (err_is_fail(err)) {
+        return err;
+    }
+
+    rpc->nprs = 0;
     return SYS_ERR_OK;
 }
