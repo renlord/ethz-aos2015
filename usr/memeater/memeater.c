@@ -36,6 +36,14 @@ void recv_handler(void *lc_in)
         MKCLOSURE(recv_handler, lc_in));
 }
 
+void gentle_test(void) {
+    for (int i = 0; i < 100000000; i++) {
+        int *test = (int *) malloc(sizeof(int));
+        *test = i;
+    }
+}
+
+
 int main(int argc, char *argv[])
 {
     debug_printf("memeater started\n");
