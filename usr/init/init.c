@@ -23,11 +23,31 @@
 struct bootinfo *bi;
 static coreid_t my_core_id;
 
+void test_call(struct lmp_chan lc);
+void test_call(struct lmp_chan lc) 
+{
+
+    errval_t err;
+    char *buf = "test_call";
+
+    err = lmp_chan_send(&lc, 1 << 1, NULL_CAP, 8,
+                  buf[0], buf[1], buf[2], buf[3], buf[4],
+                  buf[5], buf[6], buf[7], buf[8]);       
+    
+    if (err_is_ok(err)) {
+        debug_printf("part5 send successful\n");
+    } else {
+        debug_printf("part5 send fail. err:%d\n", err);
+    }
+
+    return; 
+}
+
 void recv_handler(void *lc_in);
 void recv_handler(void *lc_in)
 {
     debug_printf("recv_handler entered!\n");
-    struct lmp_chan *lc = lc_in;
+    struct lmp_chan *lc = (struct lmp_chan *) lc_in;
     struct lmp_recv_msg msg = LMP_RECV_MSG_INIT;
     struct capref cap;
     errval_t err = lmp_chan_recv(lc, &msg, &cap);
@@ -36,6 +56,16 @@ void recv_handler(void *lc_in)
         lmp_chan_register_recv(lc, get_default_waitset(),
             MKCLOSURE(recv_handler, lc));
         return;
+    }
+
+    if (!capref_is_null(cap)) {
+        struct lmp_endpoint *new_lmpep; //new endpoint
+        err = endpoint_create(DEFAULT_LMP_BUF_WORDS, &cap, &new_lmpep);
+        if (err_is_fail(err)) {
+            debug_printf("failed to create endpoint. err code: %d\n", err);
+        } else {
+            debug_printf("endpoint to memeater created!\n");
+        }
     }
 
     debug_printf("msg buflen %zu\n", msg.buf.msglen);
@@ -114,11 +144,11 @@ int main(int argc, char *argv[])
     lc.local_cap = cap_selfep;
     
     // allocate slot for incoming capability from memeater
-    err = lmp_chan_alloc_recv_slot(&lc);
-    if (err_is_fail(err)){
-        printf("Could not allocate receive slot!\n");
-        exit(-1);
-    }
+    // err = lmp_chan_alloc_recv_slot(&lc);
+    // if (err_is_fail(err)){
+    //     printf("Could not allocate receive slot!\n");
+    //     exit(-1);
+    // }
 
     // register receive handler 
     err = lmp_chan_register_recv(&lc, ws, MKCLOSURE(recv_handler, &lc));
