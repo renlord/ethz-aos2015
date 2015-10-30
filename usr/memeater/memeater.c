@@ -9,6 +9,31 @@
 
 #define BUFSIZE (128UL*1024*1024)
 
+void recv_handler(void *lc_in);
+void recv_handler(void *lc_in)
+{
+    debug_printf("recv_handler entered!\n");
+    struct lmp_chan *lc = (struct lmp_chan *) lc_in;
+    struct lmp_recv_msg msg = LMP_RECV_MSG_INIT;
+    struct capref cap;
+    errval_t err = lmp_chan_recv(lc, &msg, &cap);
+
+    // received a cap to do something
+    // assuming all caps coming over is going to become an endpoint cap
+
+    if (err_is_fail(err) && lmp_err_is_transient(err)) {
+        // reregister
+        lmp_chan_register_recv(lc, get_default_waitset(),
+            MKCLOSURE(recv_handler, lc));
+        return;
+    }
+
+    debug_printf("msg buflen %zu\n", msg.buf.msglen);
+    debug_printf("msg->words[0] = 0x%lx\n", msg.words[0]);
+    lmp_chan_register_recv(lc, get_default_waitset(),
+        MKCLOSURE(recv_handler, lc_in));
+}
+
 int main(int argc, char *argv[])
 {
     debug_printf("memeater started\n");
@@ -49,20 +74,27 @@ int main(int argc, char *argv[])
 
     thread_yield_dispatcher(cap_initep);
 
-
-    // Part 5. Capability Passing over LMP
-    struct lmp_endpoint *new_lmpep;
-    err = endpoint_create(DEFAULT_LMP_BUF_WORDS, &my_ep->recv_slot, &new_lmpep);
-    if (!err_is_ok(err)) {
-        debug_printf("p5 new ep creation fail. err code: %d\n", err);
-        err_print_calltrace(err);
+    // part 5. 
+    err = lmp_chan_alloc_recv_slot(&lc);
+    if (err_is_fail(err)){
+        printf("Could not allocate receive slot!\n");
+        exit(-1);
     }
+    assert(!capref_is_null(my_ep->recv_slot));
     err = lmp_chan_send0(&lc, LMP_SEND_FLAGS_DEFAULT, my_ep->recv_slot);
     if (err_is_ok(err)) {
         debug_printf("p5 cap send from memeater to init success.\n");
     } else {
         debug_printf("p5 cap send from memeater to init FAIL. err code: %d\n", err);
         err_print_calltrace(err);
+    }
+
+    struct waitset *ws = get_default_waitset();
+    waitset_init(ws);
+
+    err = lmp_chan_register_recv(&lc, ws, MKCLOSURE(recv_handler, &lc));
+    if (err_is_fail(err)){
+        printf("Could not register receive handler! Err: %d\n", err);
     }
 
     
