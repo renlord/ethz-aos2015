@@ -17,9 +17,15 @@
 
 #include <barrelfish/barrelfish.h>
 
+struct node {
+    struct 
+    struct *node next;
+}
+
 struct aos_rpc {
     // TODO: add state for your implementation
     struct lmp_chan lc; // lmp channel
+    struct node *list; // the list that contains all 'pending' replies
     size_t n_prs; //number of pending replies
 };
 

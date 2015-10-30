@@ -20,12 +20,19 @@ void recv_handler(void *lc_in)
 {
     struct lmp_chan *lc = (struct lmp_chan *) lc_in;
     struct lmp_recv_msg msg = LMP_RECV_MSG_INIT;
-    
+    struct capref cap;
     errval_t err = lmp_chan_recv(lc, &msg, &cap);
     if (err_is_fail(err) && lmp_err_is_transient(err)) {
         lmp_chan_register_recv(lc, get_default_waitset(), 
             MKCLOSURE(recv_handler, lc));
         return;
+    }
+
+    if (!capref_is_null(&cap)) {
+        err = aos_rpc_get_ram_cap(lc, atoi(msg->buf), &cap, NULL);
+        if (err_is_fail(err)) {
+            debug_printf("fail to call get ram\n");
+        }      
     }
 }
 
@@ -49,11 +56,6 @@ errval_t aos_rpc_send_string(struct aos_rpc *chan, const char *string)
     if (err_is_fail(err)) {
         return err;
     }
-
-    // TODO: Wait for Response....
-    struct waitset *ws = get_default_waitset();
-    waitset_init(ws);
-    
     
     return SYS_ERR_OK;
 }
@@ -70,7 +72,7 @@ errval_t aos_rpc_get_ram_cap(struct aos_rpc *chan, size_t request_bits,
         return err;
     }  
     
-   
+    
 
     return SYS_ERR_OK;
 }
@@ -169,5 +171,18 @@ errval_t aos_rpc_delete(struct aos_rpc *chan, char *path)
 errval_t aos_rpc_init(struct aos_rpc *rpc)
 {
     // TODO: Initialize given rpc channel
+    errval_t err;
+
+    struct lmp_endpoint *my_ep; 
+    err = lmp_endpoint_setup(0, FIRSTEP_BUFLEN, &my_ep);
+    
+    if (err_is_fail(err)) {
+        debug_printf("aos_rpc_init FAIL. err: %d\n", err);
+    } else {
+        debug_printf("aos_rpc_init, you're ready for RPCs\n");
+    }
+
+    waitset_init(get_default_waitset);
+
     return SYS_ERR_OK;
 }
