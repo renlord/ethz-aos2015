@@ -20,8 +20,18 @@
 #include <barrelfish/debug.h>
 #include <barrelfish/lmp_chan.h>
 
+#define MAX_CLIENTS 50
+
 struct bootinfo *bi;
 static coreid_t my_core_id;
+struct mem_map {
+    struct capref endpoint;
+    uint32_t frames;
+};
+
+struct {
+    struct mem_map clients[MAX_CLIENTS];
+} memory_handler;
 
 void recv_handler(void *lc_in);
 void recv_handler(void *lc_in)
@@ -139,4 +149,45 @@ int main(int argc, char *argv[])
     }
 
     return EXIT_SUCCESS;
+}
+
+errval_t request_memory(struct capref endpoint, struct capref *dest,
+                        uint8_t req_bits, uint8_t *ret_bits);
+errval_t request_memory(struct capref endpoint, struct capref *dest,
+                        uint8_t req_bits, uint8_t *ret_bits)
+{    
+    // Check if dest is pointing anywhere
+    if (dest == NULL) {
+        return SYS_ERR_LMP_NO_TARGET;
+    }
+        
+    // Update mapping
+    struct mem_map *m = memory_handler.clients;
+    uint32_t i;
+    for (i = 0; i < MAX_CLIENTS; i++, m = &memory_handler.clients[i])
+    {
+        if (capcmp(m->endpoint, endpoint)){
+            break;
+        }
+        
+        if (m == NULL){
+            *m = (struct mem_map){ endpoint, 0 };
+            break;
+        }
+    }
+    
+    if (i == MAX_CLIENTS){
+        return LIB_ERR_RAM_ALLOC_MS_CONSTRAINTS;
+    }
+    
+    // Perform the allocation
+    errval_t err = memserv_alloc(dest, req_bits, 0, 0); // TODO perhaps edit max_limit
+    if (err_is_fail(err)){
+        return err;
+    }
+    
+    *ret_bits = req_bits; // FIXME
+    
+    m->frames += (uint32_t)ret_bits; // TODO divide by framesize
+    return err;
 }

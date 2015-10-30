@@ -16,6 +16,7 @@
 #include <barrelfish/paging.h>
 #include <barrelfish/except.h>
 #include <barrelfish/slab.h>
+#include <barrelfish/dispatch.h>
 #include "threads_priv.h"
 
 #include <stdio.h>
@@ -230,7 +231,9 @@ static void buddy_dealloc(struct node *cur, lvaddr_t addr)
 
 uint32_t stack[EXC_STACK_SIZE];
 
-static void allocate_pt(struct paging_state *st, lvaddr_t addr)
+static void allocate_pt(struct paging_state *st,
+                        lvaddr_t addr,
+                        struct capref frame_cap)
 {
     errval_t err;
     
@@ -257,40 +260,14 @@ static void allocate_pt(struct paging_state *st, lvaddr_t addr)
         }
     }
     
-    // Allocate frame capabilities
-    struct capref *frame_cap = st->next_frame++;
-    
-    // If we already have a capability stored for this frame, something went wrong
-    if (!capref_is_null(*frame_cap)) {
-        debug_printf("Page fault occured for already mapped frame.\n");
-        THROW_ERROR;
-    }
-    
     // We don't have capability so request
-    size_t req_size = ENTRIES_PER_FRAME*BASE_PAGE_SIZE;
-    
     printf("l1_slot: %d\n", l1_slot);
     printf("l2_slot: %d\n", l2_slot);
     printf("ROUND_DOWN(l2_slot, ENTRIES_PER_FRAME): %d\n",
             ROUND_DOWN(l2_slot, ENTRIES_PER_FRAME));
-    size_t ret_size;
 
-    err = frame_alloc(frame_cap, req_size, &ret_size);
-    if (err != SYS_ERR_OK){
-        debug_printf("Could not allocate frame for addr 0x%08x: %s\n",
-                     addr, err_getstring(err));
-        THROW_ERROR;                
-    }
-
-    if (ret_size != req_size){
-        debug_printf("Tried to allocate %d bytes for addr 0x%08x\
-            but could only allocate %d.\n",
-                     req_size, addr, ret_size);
-        // THROW_ERROR;
-    }
-    
     // Map frame capability in L2 pagetable
-    err = vnode_map(*l2_cap, *frame_cap, ROUND_DOWN(l2_slot, ENTRIES_PER_FRAME),
+    err = vnode_map(*l2_cap, frame_cap, ROUND_DOWN(l2_slot, ENTRIES_PER_FRAME),
                     VREGION_FLAGS_READ_WRITE, 0, ENTRIES_PER_FRAME);
     if (err != SYS_ERR_OK){
         debug_printf("Could not insert frame in L2 pagetable for addr 0x%08x: %s\n",
@@ -319,30 +296,57 @@ void page_fault_handler(enum exception_type type, int subtype,
     // Handle non-pagefault exceptions
     switch(type){
         case EXCEPT_NULL:
-            // buddy_dealloc(current.root, 0);
-            // TODO tell kernel to gracefully shutdown program
-            return;
+            // TODO print
+            exit(-1);
         case EXCEPT_BREAKPOINT:
         case EXCEPT_SINGLESTEP:
             // TODO stuff
             return;
         case EXCEPT_OTHER:
-            // buddy_dealloc(current.root, 0);
-            // TODO tell kernel to gracefully shutdown program
-            return;
+            // TODO print
+            exit(-1);
         default:;
     }
-    
+        
     // Check if addr is in buddy allocation tree and throw error if not
     if (!buddy_check_addr(current.root, (lvaddr_t)addr)) {
         debug_printf("Did not find address 0x%08x!\n", (lvaddr_t)addr);
         // buddy_dealloc(current.root, 0);
-        // TODO tell kernel to gracefully shutdown program
-        return;
+        // TODO print
+        exit(-1);
     }
     
-    // Otherwise, allocate frame
-    allocate_pt(&current, (lvaddr_t)addr);
+    /* Otherwise we need to allocate. If we're init, we do it directly,
+       and otherwise we do it by RPC */
+    struct capref *frame_cap = NULL;
+    size_t req_size = BASE_PAGE_SIZE*ENTRIES_PER_FRAME;
+    size_t ret_size;
+    errval_t err;
+    
+    const char *obj = "init";
+    const char *prog = disp_name();
+    if(strncmp(obj, prog, MIN(5,strlen(prog)))){
+        err = frame_alloc(frame_cap, req_size, &ret_size);
+    } else {
+        err = aos_rpc_get_ram_cap(current.chan, req_size,
+                                  frame_cap, &ret_size);
+    }
+    
+    if (err != SYS_ERR_OK){
+        debug_printf("Could not allocate frame for addr 0x%08x: %s\n",
+                     addr, err_getstring(err));
+        exit(-1);
+    }
+
+    if (ret_size != req_size){
+        debug_printf("Tried to allocate %d bytes for addr 0x%08x\
+            but could only allocate %d.\n",
+                     req_size, addr, ret_size);
+        exit(-1);
+    }
+    
+    // Allocate L1 and L2 entries, if needed, and insert frame cap
+    allocate_pt(&current, (lvaddr_t)addr, *frame_cap);
 }
 
 errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
@@ -387,6 +391,7 @@ errval_t paging_init(void)
     // you can handle page faults in any thread of a domain.
     
     void *old_stack_base, *old_stack_top;
+    
     thread_set_exception_handler(page_fault_handler, NULL,
                                  stack, &stack[EXC_STACK_SIZE],
                                  &old_stack_base, &old_stack_top);

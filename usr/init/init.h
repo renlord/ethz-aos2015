@@ -24,4 +24,7 @@ extern struct bootinfo *bi;
 errval_t initialize_ram_alloc(void);
 errval_t initialize_mem_serv(void);
 
+errval_t memserv_alloc(struct capref *ret, uint8_t bits,
+                       genpaddr_t minbase, genpaddr_t maxlimit);
+
 #endif // INIT_H

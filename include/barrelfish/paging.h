@@ -18,6 +18,7 @@
 
 #include <errors/errno.h>
 #include <barrelfish/capabilities.h>
+#include <barrelfish/aos_rpc.h>
 
 typedef int paging_flags_t;
 
@@ -70,6 +71,7 @@ struct paging_state {
     struct capref frame_caps[NO_OF_FRAMES];
     struct capref *next_frame;
     struct capref guard_cap;
+    struct aos_rpc *chan;
 };
 
 struct thread;

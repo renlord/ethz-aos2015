@@ -43,8 +43,8 @@ static struct slot_prealloc ram_slot_alloc;
 
 static bool refilling = false;
 
-static errval_t memserv_alloc(struct capref *ret, uint8_t bits, genpaddr_t minbase,
-                              genpaddr_t maxlimit)
+errval_t memserv_alloc(struct capref *ret, uint8_t bits, genpaddr_t minbase,
+                       genpaddr_t maxlimit)
 {
     errval_t err;
 

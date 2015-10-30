@@ -70,6 +70,7 @@ int main(int argc, char *argv[])
     err = lmp_chan_alloc_recv_slot(&lc);
     if (err_is_fail(err)){
         printf("Could not allocate receive slot!\n");
+        err_print_calltrace(err);
         exit(-1);
     }
     
@@ -77,22 +78,16 @@ int main(int argc, char *argv[])
     err = lmp_chan_register_recv(&lc, ws, MKCLOSURE(recv_handler, &lc));
     if (err_is_fail(err)){
         debug_printf("Could not register receive handler!\n");
+        err_print_calltrace(err);
         exit(-1);
-    } else {
-        debug_printf("Allocated receive handler\n");
     }
     
     // Send our endpoint capability
     err = lmp_chan_send0(&lc, LMP_SEND_FLAGS_DEFAULT, new_ep);
-    if (err_is_ok(err)) {
-        debug_printf("new_ep.cnode.address: 0x%08x\n", new_ep.cnode.address);
-        debug_printf("new_ep.slot: %d\n", new_ep.slot);
-        debug_printf("cap_initep.cnode.address: 0x%08x\n", cap_initep.cnode.address);
-        debug_printf("cap_initep.slot: %d\n", cap_initep.slot);
-        debug_printf("p5 cap send from memeater to init success.\n");
-    } else {
+    if (!err_is_ok(err)) {
         debug_printf("p5 cap send from memeater to init FAIL. err code: %d\n", err);
         err_print_calltrace(err);
+        exit(-1)
     }
     
     // Handle messages
