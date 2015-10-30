@@ -13,6 +13,7 @@
  */
 
 #include <barrelfish/aos_rpc.h>
+#include <barrelfish/paging.h>
 
 #define FIRSTEP_BUFLEN          21u
 
@@ -216,5 +217,10 @@ errval_t aos_rpc_init(struct aos_rpc *rpc)
     }
 
     rpc->nprs = 0;
+
+    // register in paging state
+    struct paging_state *st = get_current_paging_state();
+    st->chan = rpc;
+    
     return SYS_ERR_OK;
 }
