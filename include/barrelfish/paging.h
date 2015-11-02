@@ -50,7 +50,7 @@ typedef int paging_flags_t;
 #define ENTRIES_PER_FRAME 32
 #define L1_ENTRIES (ARM_L1_OFFSET(VADDR_OFFSET)>>2)
 #define NO_OF_FRAMES \
-    L1_ENTRIES*(ARM_L2_MAX_ENTRIES<<2)/ENTRIES_PER_FRAME
+    (L1_ENTRIES*(ARM_L2_MAX_ENTRIES<<2)/ENTRIES_PER_FRAME)
         
 struct node {
     lvaddr_t addr;
@@ -114,6 +114,11 @@ errval_t paging_region_unmap(struct paging_region *pr, lvaddr_t base, size_t byt
  *        accomodate a buffer of size `bytes`.
  */
 errval_t paging_alloc(struct paging_state *st, void **buf, size_t bytes);
+
+/**
+ * \brief TODO
+ */
+errval_t paging_dealloc(struct paging_state *st, void *buf);
 
 /**
  * Functions to map a user provided frame.

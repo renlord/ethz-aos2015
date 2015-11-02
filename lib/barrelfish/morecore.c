@@ -64,11 +64,17 @@ static void *morecore_alloc(size_t bytes, size_t *retbytes)
     // *retbytes = aligned_bytes;
     void *ret;
     paging_alloc(get_current_paging_state(), &ret, bytes);
+    
+    if (ret == (void *)0x04010108){
+        debug_printf("morecore_alloc: 0x04010108 was allocated!\n");
+    }
+    
     return ret;
 }
 
 static void morecore_free(void *base, size_t bytes)
 {
+    paging_dealloc(get_current_paging_state(), base);
     return;
 }
 

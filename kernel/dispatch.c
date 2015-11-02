@@ -422,10 +422,6 @@ errval_t lmp_deliver_payload(struct capability *ep, struct dcb *send,
           DISP_NAME_LEN, send ? send_disp->name : "kernel",
           DISP_NAME_LEN, recv_disp->name);
 
-    printf("LMP %.*s -> %.*s\n",
-          DISP_NAME_LEN, send ? send_disp->name : "kernel",
-          DISP_NAME_LEN, recv_disp->name);
-
     // Setup receiver's message flags
     union lmp_recv_header recvheader = { .raw = 0 };
     recvheader.x.flags.captransfer = captransfer;
@@ -450,10 +446,10 @@ errval_t lmp_deliver_payload(struct capability *ep, struct dcb *send,
 
     // tell the dispatcher that it has an outstanding message in one of its EPs
     recv_disp->lmp_delivered += payload_len + LMP_RECV_HEADER_LENGTH;
-
+    
     // ... and give it a hint which one to look at
     recv_disp->lmp_hint = ep->u.endpoint.epoffset;
-
+    
     // Make target runnable
     make_runnable(recv);
 

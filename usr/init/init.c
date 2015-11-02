@@ -23,33 +23,20 @@
 
 
 #define MAX_CLIENTS 50
-struct mem_map {
-    struct capref endpoint;
-    uint32_t bytes;
-};
+#define FIRSTEP_BUFLEN 20u
 
-struct {
-    struct mem_map clients[MAX_CLIENTS];
-} memory_handler;
-
+size_t client_bytes[MAX_CLIENTS];
 
 struct bootinfo *bi;
 static coreid_t my_core_id;
 
+my_pid_t next_pid;
+
 void debug_print_mem(void);
 void debug_print_mem(void){
-    struct mem_map *m = memory_handler.clients;
-    
-    for (uint32_t i = 0;
-         i < MAX_CLIENTS;
-         i++, m = &memory_handler.clients[i])
+    for (uint32_t i = 0; i < MAX_CLIENTS && client_bytes[i]; i++)
     {
-        if (capref_is_null(m->endpoint)){
-            break;
-        }
-        
-        printf("mapping %d: (%d, %d)\n",
-               i, m->endpoint.cnode.address_bits, m->bytes);
+        debug_printf("%d: %d\n", i, client_bytes[i]);
     }
     
 }
@@ -57,22 +44,20 @@ void debug_print_mem(void){
 void recv_handler(void *lc_in);
 void recv_handler(void *lc_in)
 {
-    struct capref remote_cap;
+    struct capref remote_cap = NULL_CAP;
     struct lmp_chan *lc = (struct lmp_chan *)lc_in;
     struct lmp_recv_msg msg = LMP_RECV_MSG_INIT;
     errval_t err = lmp_chan_recv(lc, &msg, &remote_cap);
-
-    if (msg.buf.msglen > 1){
-        debug_printf("Bad msg for init.\n");
+    
+    if (err_is_fail(err)) {
+        debug_printf("Could not send msg to init: %s.\n",
+            err_getstring(err));
+        err_print_calltrace(err);
         return; // FIXME notify caller
     }
-    
-    uint32_t req_bits = msg.buf.words[0];
 
-    if (err_is_fail(err) && lmp_err_is_transient(err)) {
-        // reregister
-        lmp_chan_register_recv(lc, get_default_waitset(),
-            MKCLOSURE(recv_handler, lc));
+    if (msg.buf.msglen == 0){
+        debug_printf("Bad msg for init.\n");
         return; // FIXME notify caller
     }
     
@@ -83,49 +68,64 @@ void recv_handler(void *lc_in)
     
     lc->remote_cap = remote_cap;
     
-    // struct lmp_chan *lc = (struct lmp_chan *) lc_in;
-    // struct lmp_recv_msg msg = LMP_RECV_MSG_INIT;
-    struct capref dest = NULL_CAP;
+    err = lmp_chan_alloc_recv_slot(lc);
+    if (err_is_fail(err)){
+        debug_printf("Could not allocate recv slot: %s.\n",
+            err_getstring(err));
+        err_print_calltrace(err);
+        exit(-1);
+    }
     
-    // Update mapping
-    struct mem_map *m = memory_handler.clients;
-    uint32_t i;
-    for (i = 0; i < MAX_CLIENTS; i++, m = &memory_handler.clients[i])
-    {
-        if (capcmp(m->endpoint, remote_cap)){
+    lmp_chan_register_recv(lc, get_default_waitset(),
+        MKCLOSURE(recv_handler, lc_in));
+    
+    uint32_t code = msg.buf.words[0];
+    switch(code){
+        case REQUEST_PID:
+        {
+            if (next_pid < MAX_CLIENTS){
+                lmp_chan_send2(lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP,
+                    REQUEST_PID, next_pid++);
+            } else {
+                // TODO handle
+                return;
+            }
             break;
         }
         
-        if (capref_is_null(m->endpoint)){
-            *m = (struct mem_map){ remote_cap, 0 };
+        case SEND_TEXT:
+        break;
+        
+        case REQUEST_FRAME_CAP:
+        {
+            my_pid_t pid = msg.buf.words[1];
+            uint32_t req_bits = msg.buf.words[2];
+            
+            struct capref dest = NULL_CAP;
+            
+            // Perform the allocation
+            size_t ret_bits;
+            err = frame_alloc(&dest, req_bits, &ret_bits);
+            if (err_is_fail(err)){
+                debug_printf("Failed memserv allocation.\n");
+                err_print_calltrace(err);
+                return;// err; // FIXME
+            }
+            
+            client_bytes[pid-1] += ret_bits;
+            
+            err = lmp_chan_send2(lc, LMP_SEND_FLAGS_DEFAULT, dest,
+                REQUEST_FRAME_CAP, ret_bits);
+            if (err_is_fail(err)) {
+                debug_printf("Could not send msg to init: %s.\n",
+                    err_getstring(err));
+                err_print_calltrace(err);
+                exit(-1);
+            }
             break;
-        }
-    }
-    
-    if (i == MAX_CLIENTS){
-        debug_printf("No more space for clients.\n");
-        return; // FIXME
-    }
-
-    // Perform the allocation
-    size_t ret_bits;
-    err = frame_alloc(&dest, req_bits, &ret_bits);
-    if (err_is_fail(err)){
-        debug_printf("Failed memserv allocation.\n");
-        err_print_calltrace(err);
-        return;// err; // FIXME
-    }
-    
-    debug_print_mem();    
-    
-    // Our program fails in this part because we yield processor
-    // when responding to caller, which then may break the program
-    // by sending a new message befor we get to call `event_dispatch()`
-    lmp_chan_register_recv(lc, get_default_waitset(),
-        MKCLOSURE(recv_handler, lc_in));
-
-    lmp_chan_send0(lc, 0, dest);
-    // TODO WHY RACE CONDITION HERE???
+         }
+            
+    }    
 }
 
 int main(int argc, char *argv[])
@@ -181,7 +181,7 @@ int main(int argc, char *argv[])
     // allocate lmp chan
     struct lmp_chan lc;
 
-    // init lmp chan
+    // initialize lmp chan
     lmp_chan_init(&lc);
    
     /* make local endpoint available -- this was minted in the kernel in a way
@@ -189,10 +189,10 @@ int main(int argc, char *argv[])
      * buffer length corresponds DEFAULT_LMP_BUF_WORDS (excluding the kernel 
      * sentinel word).
      */
-    uint32_t FIRSTEP_BUFLEN = 21u;
+    
 
     struct lmp_endpoint *my_ep;
-    lmp_endpoint_setup(0, FIRSTEP_BUFLEN, &my_ep);    
+    lmp_endpoint_setup(0, FIRSTEP_BUFLEN, &my_ep);
     
     lc.endpoint = my_ep;
     lc.local_cap = cap_selfep;
@@ -210,14 +210,15 @@ int main(int argc, char *argv[])
         printf("Could not register receive handler!\n");
         exit(-1);
     }
-
+    
+    next_pid = 1;
 
     for (uint32_t i = 0; i < MAX_CLIENTS; i++) {
-        memory_handler.clients[i] = (struct mem_map){ NULL_CAP, 0 };
+        client_bytes[i] = 0;
     }
     
     while(true) {
-        event_dispatch(ws);
+        event_dispatch(get_default_waitset());
     }
 
     return EXIT_SUCCESS;

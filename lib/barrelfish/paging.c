@@ -26,11 +26,11 @@
 #define EXC_STACK_ALIGNMENT (sizeof(uint64_t) * 2)
 
 // Our exception stack size
-#define EXC_STACK_SIZE 256*EXC_STACK_ALIGNMENT
+#define EXC_STACK_SIZE (256*EXC_STACK_ALIGNMENT)
 #define V_OFFSET (1UL << 25)
-#define THROW_ERROR *((char*)0) = 'x'
 #define ALLOCED_BLOB(n) (n->allocated && !n->left && !n->right)
 #define MAX_STRUCT_SIZE (1UL << 10)
+#define MIN_BLOB_SIZE 4 // minimum size to allocate
 
 #define MAX(a,b) \
     ({ __typeof__ (a) _a = (a); \
@@ -113,7 +113,7 @@ lvaddr_t buddy_alloc(struct paging_state *st,
         
         // Case 1a: Blob is big enough to do a split and recurse
         if ((cur->max_size >> 1) > req_size &&
-            (cur->max_size >> 1) >= BASE_PAGE_SIZE) {
+            (cur->max_size >> 1) >= MIN_BLOB_SIZE) {
 
             size_t half_size = cur->max_size >> 1;
                 
@@ -148,12 +148,12 @@ lvaddr_t buddy_alloc(struct paging_state *st,
     } else {
         struct node *best_fit;
         
-        bool left_to_small = cur->left->max_size < req_size;
+        bool left_too_small = cur->left->max_size < req_size;
         bool right_fits_better =
             ((cur->left->max_size > cur->right->max_size) &&
             (cur->right->max_size >= req_size));
         
-        if (ALLOCED_BLOB(cur->left) || left_to_small || right_fits_better){
+        if (ALLOCED_BLOB(cur->left) || left_too_small || right_fits_better){
             if(cur->right->max_size == 0){
                 return -1;
             }
@@ -198,22 +198,55 @@ static bool buddy_check_addr(struct node *cur, lvaddr_t addr)
     }
 }
 
+static size_t buddy_print_free_space(struct node *cur, bool print){
+    assert(cur);
+    assert((cur->left && cur->right) || (!cur->left && !cur->right));
+    
+    size_t size = 0;
+    
+    if(cur->left) {
+        size = buddy_print_free_space(cur->left, false)
+             + buddy_print_free_space(cur->right, false);
+    } else if(!cur->allocated) {
+        size = cur->max_size;
+    }
+    
+    if (print) {
+        debug_printf("Current free space: %d KB\n", (size>>10));
+    }
+    
+    return size;
+}
+
 static void buddy_dealloc(struct node *cur, lvaddr_t addr) 
 {
     assert(cur);
+    assert((cur->left && cur->right) || (!cur->left && !cur->right));
 
-    if (ALLOCED_BLOB(cur)) {
-        assert(cur->addr == addr);
-        cur->allocated = false;
-        return;
-    } else if (cur->right && (cur->right->addr <= addr)) {
-        buddy_dealloc(cur->right, addr);
+    if (!cur->left) {
+        // We're a leaft
+        
+        if (cur->allocated) {
+            assert(cur->addr == addr);
+            cur->allocated = false;
+            return;
+        } else  {
+            return;
+        }
     } else {
-        buddy_dealloc(cur->left, addr);
+        // We're intermediate node
+        
+        if (cur->right->addr <= addr) {
+            buddy_dealloc(cur->right, addr);
+        } else {
+            buddy_dealloc(cur->left, addr);
+        }    
     }
     
+    // Sanity check
     assert(cur->left && cur->right);
     
+    // If possible, coerce child nodes
     if (!cur->left->allocated && !cur->right->allocated){
         size_t new_size = cur->addr ^ cur->right->addr;
         
@@ -246,7 +279,6 @@ static void allocate_pt(struct paging_state *st,
     // Check if we have l2 capabilities and request if not
     struct capref *l2_cap = &(st->l2_caps[l1_slot]);
     if(capref_is_null(*l2_cap)) {
-        printf("capref for l2 is null\n");
         // Allocate capability
         arml2_alloc(l2_cap);
         
@@ -256,23 +288,17 @@ static void allocate_pt(struct paging_state *st,
         
         if (err != SYS_ERR_OK){
             debug_printf("Could not insert L2 pagetable in L1 pagetable for addr 0x%08x: %s\n", addr, err_getstring(err));
-            THROW_ERROR;
+            exit(-1); // TODO handle
         }
     }
     
-    // We don't have capability so request
-    printf("l1_slot: %d\n", l1_slot);
-    printf("l2_slot: %d\n", l2_slot);
-    printf("ROUND_DOWN(l2_slot, ENTRIES_PER_FRAME): %d\n",
-            ROUND_DOWN(l2_slot, ENTRIES_PER_FRAME));
-
     // Map frame capability in L2 pagetable
     err = vnode_map(*l2_cap, frame_cap, ROUND_DOWN(l2_slot, ENTRIES_PER_FRAME),
                     VREGION_FLAGS_READ_WRITE, 0, ENTRIES_PER_FRAME);
     if (err != SYS_ERR_OK){
         debug_printf("Could not insert frame in L2 pagetable for addr 0x%08x: %s\n",
                      addr, err_getstring(err));
-        THROW_ERROR;                
+        exit(-1); // TODO handle;                
     }
 }
 
@@ -285,6 +311,8 @@ void page_fault_handler(enum exception_type type, int subtype,
                         void *addr, arch_registers_state_t *regs,
                         arch_registers_fpu_state_t *fpuregs)
 {
+    debug_printf("pagefault for addr 0x%08x\n", addr);
+    
     lvaddr_t vaddr = (lvaddr_t)addr;
     
     // We assume all structs are less than 1KB, so pagefaults on addrs
@@ -326,12 +354,10 @@ void page_fault_handler(enum exception_type type, int subtype,
     const char *obj = "init";
     const char *prog = disp_name();
 
-    if(!strncmp(obj, prog, MIN(5,strlen(prog)))){
-        err = frame_alloc(&frame_cap, BASE_PAGE_SIZE*ENTRIES_PER_FRAME,
-                &ret_size);
+    if(strncmp(obj, prog, MIN(5,strlen(prog))) == 0){
+        err = frame_alloc(&frame_cap, req_size, &ret_size);
     } else {
-        err = aos_rpc_get_ram_cap(current.rpc,
-                BASE_PAGE_SIZE*ENTRIES_PER_FRAME, &frame_cap, &ret_size);
+        err = aos_rpc_get_ram_cap(current.rpc, req_size, &frame_cap, &ret_size);
     }
     
     if (err != SYS_ERR_OK){
@@ -485,7 +511,8 @@ errval_t paging_region_unmap(struct paging_region *pr, lvaddr_t base, size_t byt
  */
 errval_t paging_alloc(struct paging_state *st, void **buf, size_t bytes)
 {
-    debug_printf("paging_alloc called\n");
+    debug_printf("paging_alloc called for size %d\n", bytes);
+
     if(!st){
         debug_printf("arg st is NULL");
         return SYS_ERR_OK;
@@ -495,7 +522,22 @@ errval_t paging_alloc(struct paging_state *st, void **buf, size_t bytes)
 
     // find virtual address from AVL-tree
     *((lvaddr_t*)buf) = buddy_alloc(st, st->root, bytes);
-    // TODO handle error                    
+    
+    debug_printf("paging_alloc returned 0x%08x\n", *buf);
+
+    // TODO handle error
+    return SYS_ERR_OK;
+}
+
+/**
+ * \brief 
+ */
+errval_t paging_dealloc(struct paging_state *st, void *buf)
+{
+    debug_printf("paging_dealloc called for addr 0x%08x.\n",
+        (lvaddr_t) buf);
+    buddy_dealloc(st->root, (lvaddr_t)buf);
+    buddy_print_free_space(st->root, true);
     return SYS_ERR_OK;
 }
 
