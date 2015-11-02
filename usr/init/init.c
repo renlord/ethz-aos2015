@@ -32,6 +32,8 @@ static coreid_t my_core_id;
 
 my_pid_t next_pid;
 
+static char msg_buf[9];
+
 void debug_print_mem(void);
 void debug_print_mem(void){
     for (uint32_t i = 0; i < MAX_CLIENTS && client_bytes[i]; i++)
@@ -60,16 +62,11 @@ void recv_handler(void *lc_in)
         debug_printf("Bad msg for init.\n");
         return; // FIXME notify caller
     }
-    
-    if (capref_is_null(remote_cap)) {
-        debug_printf("Received endpoint cap was null.\n");
-        return;
-    }
-    
-    lc->remote_cap = remote_cap;
-    
+
+    lc->remote_cap = remote_cap;            
+
     err = lmp_chan_alloc_recv_slot(lc);
-    if (err_is_fail(err)){
+    if (err_is_fail(err)) {
         debug_printf("Could not allocate recv slot: %s.\n",
             err_getstring(err));
         err_print_calltrace(err);
@@ -83,7 +80,13 @@ void recv_handler(void *lc_in)
     switch(code){
         case REQUEST_PID:
         {
+            if (capref_is_null(remote_cap)) {
+                debug_printf("Received endpoint cap was null.\n");
+                return;
+            }
+    
             if (next_pid < MAX_CLIENTS){
+                debug_printf("Sending pid to memeater\n");
                 lmp_chan_send2(lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP,
                     REQUEST_PID, next_pid++);
             } else {
@@ -94,10 +97,23 @@ void recv_handler(void *lc_in)
         }
         
         case SEND_TEXT:
+        {
+            size_t buf_size = (uint32_t) msg.buf.words[1];            
+            for(uint8_t i = 0; i < buf_size; i++){
+                msg_buf[i] = msg.buf.words[i+2];
+            }
+            msg_buf[buf_size] = '\0';
+            debug_printf("Received text: %s\n", msg_buf);
+        }
         break;
         
         case REQUEST_FRAME_CAP:
         {
+            if (capref_is_null(remote_cap)) {
+                debug_printf("Received endpoint cap was null.\n");
+                return;
+            }
+    
             my_pid_t pid = msg.buf.words[1];
             uint32_t req_bits = msg.buf.words[2];
             
@@ -124,7 +140,8 @@ void recv_handler(void *lc_in)
             }
             break;
          }
-            
+        default:
+        debug_printf("Wrong code: %d\n", code);
     }    
 }
 

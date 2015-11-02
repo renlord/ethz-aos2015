@@ -37,6 +37,7 @@ struct aos_rpc {
     size_t ret_bits; 
     size_t n_prs; //number of pending replies
     my_pid_t pid;
+    char msg_buf[9];
 };
 
 /**

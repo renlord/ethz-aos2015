@@ -40,10 +40,19 @@ static void recv_handler(void *rpc_void)
     uint32_t code = msg.buf.words[0];
     switch(code) {
         case REQUEST_PID:
-        rpc->pid = msg.buf.words[1];
+        {
+            rpc->pid = msg.buf.words[1];
+            debug_printf("Received pid: %d\n", rpc->pid);
+        }
         break;
         
         case SEND_TEXT:
+        {
+            size_t buf_size = (uint32_t) msg.buf.words[1];
+            memcpy(rpc->msg_buf, (char*)msg.buf.words[2], buf_size);
+            rpc->msg_buf[buf_size] = '\0';
+            debug_printf("Received text: %s\n", rpc->msg_buf);
+        }
         break;
         
         case REQUEST_FRAME_CAP:
@@ -60,7 +69,6 @@ static void recv_handler(void *rpc_void)
 
         default:
         debug_printf("Wrong rpc code!\n");
-        exit(-1);
     }
     
     err = lmp_chan_alloc_recv_slot(&rpc->lc);
@@ -81,49 +89,29 @@ static void recv_handler(void *rpc_void)
     }
 }
 
-// static void ram_send_handler(void *rpc_void, void *args);
-// static void ram_send_handler(void *rpc_void, void *args)
-// {
-//     struct aos_rpc *rpc = (struct aos_rpc *)rpc_void;
-//
-//     err = lmp_chan_send3(&(rpc->lc), LMP_SEND_FLAGS_DEFAULT,
-//                          rpc->lc.local_cap, REQUEST_FRAME_CAP,
-//                          rpc->pid, req_bits);
-//
-// }
-
 errval_t aos_rpc_send_string(struct aos_rpc *rpc, const char *string)
 {
     struct lmp_chan lc = rpc->lc;
 
-    if (strlen(string) > 9) {
+    if (strlen(string) > 7) {
         debug_printf("aos_rpc_send_string currently does not support long strings T_T\n");
     }
-    char buf[9];
-    memcpy(buf, string, 9);
+    char buf[7];
+    memcpy(buf, string, 7);
 
     errval_t err;
-    err = lmp_chan_send(&lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 8, buf[0], 
-                            buf[1], buf[2], buf[3], buf[4],
-                            buf[5], buf[6], buf[7], buf[8]);
+    err = lmp_chan_send(&lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP,
+                        9, SEND_TEXT, 7, buf[0], buf[1], buf[2],
+                        buf[3], buf[4], buf[5], buf[6]);
 
     if (err_is_fail(err)) {
         return err;
     } 
 
-    // Dispatches to next event on given waitset. 
-    err = event_dispatch(get_default_waitset());
-    if (err_is_fail(err)) {
-        return err;
-    }
-    
     return SYS_ERR_OK;
 }
 
-/**
- * FIXME This function fails when called twice in a row because init
- * does not exit its receiver function before the next msg is sent.
- */
+
 errval_t aos_rpc_get_ram_cap(struct aos_rpc *rpc, size_t req_bits,
                              struct capref *dest, size_t *ret_bits)
 {    

@@ -15,7 +15,7 @@
 #define MEDIUM_CHUMP_ARRAY_SIZE (1UL << 12)
 #define MEDIUM_CHUMP_SIZE (1UL << 12)
 
-#define BIG_CHUMP_ARRAY_SIZE (1UL << 4)
+#define BIG_CHUMP_ARRAY_SIZE (1UL << 3)
 #define BIG_CHUMP_SIZE (1UL << 25)
 
 struct aos_rpc rpc;
@@ -114,6 +114,8 @@ int main(int argc, char *argv[])
         err_print_calltrace(err);
         exit(-1);
     }
+    
+    aos_rpc_send_string(&rpc, "checker");
     
     debug_printf("Performing small chump test...\n");
     perform_array_test(SMALL_CHUMP_SIZE, SMALL_CHUMP_ARRAY_SIZE);
