@@ -140,7 +140,23 @@ lvaddr_t buddy_alloc(struct paging_state *st,
             
         // Case 1b: Blob is best fit, so mark as allocated and return address
         } else {
+            /*
+            size_t pre_free, pre_alloc, post_free, post_alloc;
+            debug_get_free_space(&pre_free, &pre_alloc);
+            */
+            
+            assert(&current == st);
+            assert(cur->max_size > 0);
+
             cur->allocated = true;
+            
+            /*
+            debug_get_free_space(&post_free, &post_alloc);
+            assert(pre_free - cur->max_size == post_free);
+            assert(pre_alloc + cur->max_size == post_alloc);
+            assert(pre_free + pre_alloc == post_free + post_alloc);
+            */
+            
             return cur->addr;
         }
 
@@ -198,24 +214,42 @@ static bool buddy_check_addr(struct node *cur, lvaddr_t addr)
     }
 }
 
-static size_t buddy_print_free_space(struct node *cur, bool print){
+static size_t debug_get_free_space_aux(struct node *cur)
+{
     assert(cur);
     assert((cur->left && cur->right) || (!cur->left && !cur->right));
     
     size_t size = 0;
-    
     if(cur->left) {
-        size = buddy_print_free_space(cur->left, false)
-             + buddy_print_free_space(cur->right, false);
+        size = debug_get_free_space_aux(cur->left)
+               + debug_get_free_space_aux(cur->right);
     } else if(!cur->allocated) {
         size = cur->max_size;
     }
     
-    if (print) {
-        debug_printf("Current free space: %d KB\n", (size>>10));
+    return size;
+}
+
+static size_t debug_get_alloc_space_aux(struct node *cur)
+{
+    assert(cur);
+    assert((cur->left && cur->right) || (!cur->left && !cur->right));
+    
+    size_t size = 0;
+    if(cur->left) {
+        size = debug_get_alloc_space_aux(cur->left)
+               + debug_get_alloc_space_aux(cur->right);
+    } else if(cur->allocated) {
+        size = cur->max_size;
     }
     
     return size;
+}
+
+void debug_get_free_space(size_t *free_s, size_t *alloc_s)
+{
+    *free_s = debug_get_free_space_aux(current.root);
+    *alloc_s = debug_get_alloc_space_aux(current.root);
 }
 
 static void buddy_dealloc(struct node *cur, lvaddr_t addr) 
@@ -311,8 +345,6 @@ void page_fault_handler(enum exception_type type, int subtype,
                         void *addr, arch_registers_state_t *regs,
                         arch_registers_fpu_state_t *fpuregs)
 {
-    debug_printf("pagefault for addr 0x%08x\n", addr);
-    
     lvaddr_t vaddr = (lvaddr_t)addr;
     
     // We assume all structs are less than 1KB, so pagefaults on addrs
@@ -399,7 +431,7 @@ errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
     st->next_node = st->all_nodes;
     st->next_frame = st->frame_caps;
     st->root = create_node(st);
-    st->root->max_size = (1UL<<31);
+    st->root->max_size = (1UL << 31); // TODO subtract stack size
     st->root->addr = 0;
     
     buddy_alloc(st, st->root, V_OFFSET);
@@ -431,9 +463,9 @@ errval_t paging_init(void)
         .slot = 0,
     };
 
+    set_current_paging_state(&current);
     paging_init_state(&current, 0, l1_cap);
     
-    set_current_paging_state(&current);
     return SYS_ERR_OK;
 }
 
@@ -511,11 +543,9 @@ errval_t paging_region_unmap(struct paging_region *pr, lvaddr_t base, size_t byt
  */
 errval_t paging_alloc(struct paging_state *st, void **buf, size_t bytes)
 {
-    debug_printf("paging_alloc called for size %d\n", bytes);
-
     if(!st){
         debug_printf("arg st is NULL");
-        return SYS_ERR_OK;
+        exit(-1);
     }
 
     current = *st;
@@ -523,8 +553,11 @@ errval_t paging_alloc(struct paging_state *st, void **buf, size_t bytes)
     // find virtual address from AVL-tree
     *((lvaddr_t*)buf) = buddy_alloc(st, st->root, bytes);
     
-    debug_printf("paging_alloc returned 0x%08x\n", *buf);
-
+    if(*buf == (void*)-1) {
+        debug_printf("Could not allocate space\n");
+        exit(-1);
+    }
+    
     // TODO handle error
     return SYS_ERR_OK;
 }
@@ -534,10 +567,7 @@ errval_t paging_alloc(struct paging_state *st, void **buf, size_t bytes)
  */
 errval_t paging_dealloc(struct paging_state *st, void *buf)
 {
-    debug_printf("paging_dealloc called for addr 0x%08x.\n",
-        (lvaddr_t) buf);
     buddy_dealloc(st->root, (lvaddr_t)buf);
-    buddy_print_free_space(st->root, true);
     return SYS_ERR_OK;
 }
 

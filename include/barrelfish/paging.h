@@ -75,6 +75,11 @@ struct paging_state {
 };
 
 struct thread;
+
+// Debug function for checking amount of free space in
+// buddy allocation
+void debug_get_free_space(size_t *free_s, size_t *alloc_s);
+
 /// Initialize paging_state struct
 errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
         struct capref pdir);
