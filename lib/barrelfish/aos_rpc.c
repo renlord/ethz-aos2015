@@ -41,8 +41,12 @@ static void recv_handler(void *rpc_void)
     switch(code) {
         case REQUEST_PID:
         {
-            rpc->pid = msg.buf.words[1];
-            debug_printf("Received pid: %d\n", rpc->pid);
+            if (capref_is_null(remote_cap)) {
+                debug_printf("Received endpoint cap was null.\n");
+                return;
+            }
+
+            rpc->lc.remote_cap = remote_cap;
         }
         break;
         
@@ -124,9 +128,9 @@ errval_t aos_rpc_get_ram_cap(struct aos_rpc *rpc, size_t req_bits,
         exit(-1);
     }
     
-    err = lmp_chan_send3(&rpc->lc, LMP_SEND_FLAGS_DEFAULT,
+    err = lmp_chan_send2(&rpc->lc, LMP_SEND_FLAGS_DEFAULT,
                          rpc->lc.local_cap, REQUEST_FRAME_CAP,
-                         rpc->pid, req_bits);
+                         req_bits);
     
     if (err_is_fail(err)) {
         debug_printf("Could not send msg to init: %s.\n",
@@ -269,6 +273,7 @@ errval_t aos_rpc_init(struct aos_rpc *rpc)
     rpc->lc.endpoint = my_ep;
     rpc->lc.local_cap = new_ep;
     rpc->lc.remote_cap = cap_initep;
+    rpc->pid = 0;
     
     // Allocate the slot for receiving
     err = lmp_chan_alloc_recv_slot(&rpc->lc);
@@ -301,7 +306,7 @@ errval_t aos_rpc_init(struct aos_rpc *rpc)
     // register in paging state
     struct paging_state *st = get_current_paging_state();
     st->rpc = rpc;
-    
+
     // Listen for response from init. When recv_handler returns,
     // cap should be in rpc->return_cap
     debug_printf("Waiting for response from init\n");

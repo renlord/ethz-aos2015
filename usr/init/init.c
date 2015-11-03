@@ -33,6 +33,7 @@ static coreid_t my_core_id;
 my_pid_t next_pid;
 
 static char msg_buf[9];
+struct lmp_chan new_chan;
 
 void debug_print_mem(void);
 void debug_print_mem(void){
@@ -50,7 +51,7 @@ void recv_handler(void *lc_in)
     struct lmp_chan *lc = (struct lmp_chan *)lc_in;
     struct lmp_recv_msg msg = LMP_RECV_MSG_INIT;
     errval_t err = lmp_chan_recv(lc, &msg, &remote_cap);
-    
+
     if (err_is_fail(err)) {
         debug_printf("Could not send msg to init: %s.\n",
             err_getstring(err));
@@ -63,7 +64,7 @@ void recv_handler(void *lc_in)
         return; // FIXME notify caller
     }
     
-    lc->remote_cap = remote_cap;            
+    lc->remote_cap = remote_cap;
 
     err = lmp_chan_alloc_recv_slot(lc);
     if (err_is_fail(err)) {
@@ -85,51 +86,54 @@ void recv_handler(void *lc_in)
                 return;
             }
 
-            struct capref new_ep;
+            struct capref ep_cap;
             struct lmp_endpoint *my_ep; 
-            err = endpoint_create(FIRSTEP_BUFLEN, &new_ep, &my_ep);
+            err = endpoint_create(FIRSTEP_BUFLEN, &ep_cap, &my_ep);
             if (err_is_fail(err)) {
                 debug_printf("failed to create endpoint.\n");
                 err_print_calltrace(err);
+                return;
             }
 
-            err = lmp_chan_send0(lc, LMP_SEND_FLAGS_DEFAULT, new_ep);
+            err = lmp_chan_send1(lc, LMP_SEND_FLAGS_DEFAULT, ep_cap,
+                REQUEST_PID);
             if (err_is_fail(err)) {
                 debug_printf("failed to send new endpoint.\n");
                 err_print_calltrace(err);
+                return;
             }
+            
+            lmp_chan_init(&new_chan);
 
             // bootstrap new LMP channel. 
-            struct lmp_chan new_chan = {
-                .local_cap = new_ep,
-                .remote_cap = lc->remote_cap,
-                .endpoint = my_ep,
-            };
+            new_chan.local_cap = ep_cap;
+            new_chan.remote_cap = lc->remote_cap;
+            new_chan.endpoint = my_ep;
 
             err = lmp_chan_alloc_recv_slot(&new_chan);
             if (err_is_fail(err)) {
                 debug_printf("Could not allocate receive slot!\n");
                 err_print_calltrace(err);
-                exit(-1);
+                return;
             }
 
             err = lmp_chan_register_recv(&new_chan, get_default_waitset(), MKCLOSURE(recv_handler, (void *)&new_chan));
             if (err_is_fail(err)) {
                 debug_printf("Could not register receive handler\n");
                 err_print_calltrace(err);
-                exit(-1);
+                return;
             }
 
             // NEW INIT CHANNEL SHOULD BE READY TO RECEIVE Stuff Now. 
 
-            if (next_pid < MAX_CLIENTS){
-                debug_printf("Sending pid to memeater\n");
-                lmp_chan_send2(lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP,
-                    REQUEST_PID, next_pid++);
-            } else {
-                // TODO handle
-                return;
-            }
+            // if (next_pid < MAX_CLIENTS){
+            //     debug_printf("Sending pid to memeater\n");
+            //     lmp_chan_send2(lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP,
+            //         REQUEST_PID, next_pid++);
+            // } else {
+            //     // TODO handle
+            //     return;
+            // }
             break;
         }
         
@@ -146,13 +150,13 @@ void recv_handler(void *lc_in)
         
         case REQUEST_FRAME_CAP:
         {
+
             if (capref_is_null(remote_cap)) {
                 debug_printf("Received endpoint cap was null.\n");
                 return;
             }
     
-            my_pid_t pid = msg.buf.words[1];
-            uint32_t req_bits = msg.buf.words[2];
+            uint32_t req_bits = msg.buf.words[1];
             
             struct capref dest = NULL_CAP;
             
@@ -162,10 +166,9 @@ void recv_handler(void *lc_in)
             if (err_is_fail(err)){
                 debug_printf("Failed memserv allocation.\n");
                 err_print_calltrace(err);
-                return;// err; // FIXME
             }
             
-            client_bytes[pid-1] += ret_bits;
+            // client_bytes[pid-1] += ret_bits;
             
             err = lmp_chan_send2(lc, LMP_SEND_FLAGS_DEFAULT, dest,
                 REQUEST_FRAME_CAP, ret_bits);
