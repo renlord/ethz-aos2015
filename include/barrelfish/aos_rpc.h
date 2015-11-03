@@ -23,7 +23,7 @@
 #include <barrelfish/debug.h>
 
 enum rpc_code {
-    REQUEST_PID,
+    REQUEST_CHAN,
     SEND_TEXT,
     REQUEST_FRAME_CAP
 };
@@ -34,9 +34,7 @@ struct aos_rpc {
     // TODO: add state for your implementation
     struct lmp_chan lc; // lmp channel
     struct capref return_cap; 
-    size_t ret_bits; 
-    size_t n_prs; //number of pending replies
-    my_pid_t pid;
+    size_t ret_bits;
     char msg_buf[9];
 };
 

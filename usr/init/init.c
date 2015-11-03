@@ -25,24 +25,12 @@
 #define MAX_CLIENTS 50
 #define FIRSTEP_BUFLEN 20u
 
-size_t client_bytes[MAX_CLIENTS];
-
 struct bootinfo *bi;
 static coreid_t my_core_id;
 
-my_pid_t next_pid;
-
 static char msg_buf[9];
-struct lmp_chan new_chan;
 
-void debug_print_mem(void);
-void debug_print_mem(void){
-    for (uint32_t i = 0; i < MAX_CLIENTS && client_bytes[i]; i++)
-    {
-        debug_printf("%d: %d\n", i, client_bytes[i]);
-    }
-    
-}
+
 
 void recv_handler(void *lc_in);
 void recv_handler(void *lc_in)
@@ -50,104 +38,110 @@ void recv_handler(void *lc_in)
     struct capref remote_cap = NULL_CAP;
     struct lmp_chan *lc = (struct lmp_chan *)lc_in;
     struct lmp_recv_msg msg = LMP_RECV_MSG_INIT;
+
+    // Retrieve msg
     errval_t err = lmp_chan_recv(lc, &msg, &remote_cap);
 
     if (err_is_fail(err)) {
-        debug_printf("Could not send msg to init: %s.\n",
+        debug_printf("Could not retrieve message: %s.\n",
             err_getstring(err));
         err_print_calltrace(err);
-        return; // FIXME notify caller
+        return;
     }
 
+    // Our protocol requires that there is a procedure code
+    // at a bare minimum
     if (msg.buf.msglen == 0){
         debug_printf("Bad msg for init.\n");
-        return; // FIXME notify caller
+        return;
     }
     
-    lc->remote_cap = remote_cap;
-
+    // Allocate receive struct right away for next msg
     err = lmp_chan_alloc_recv_slot(lc);
     if (err_is_fail(err)) {
         debug_printf("Could not allocate recv slot: %s.\n",
             err_getstring(err));
         err_print_calltrace(err);
-        exit(-1);
+        return;
     }
     
-    lmp_chan_register_recv(lc, get_default_waitset(), MKCLOSURE(recv_handler, lc_in));
+    // Re-register
+    lmp_chan_register_recv(lc, get_default_waitset(),
+        MKCLOSURE(recv_handler, lc_in));
     
     uint32_t code = msg.buf.words[0];
     switch(code) {
-        // this ought to be remade to REQUEST_CHAN
-        case REQUEST_PID:
+        
+        // Initial request from new clients, causes init to establish
+        // a new channel for future communication
+        case REQUEST_CHAN:
         {
             if (capref_is_null(remote_cap)) {
                 debug_printf("Received endpoint cap was null.\n");
                 return;
             }
 
+            // Create new endpoint and channel, and initialize
             struct capref ep_cap;
             struct lmp_endpoint *my_ep; 
             err = endpoint_create(FIRSTEP_BUFLEN, &ep_cap, &my_ep);
             if (err_is_fail(err)) {
-                debug_printf("failed to create endpoint.\n");
-                err_print_calltrace(err);
-                return;
-            }
-
-            err = lmp_chan_send1(lc, LMP_SEND_FLAGS_DEFAULT, ep_cap,
-                REQUEST_PID);
-            if (err_is_fail(err)) {
-                debug_printf("failed to send new endpoint.\n");
+                debug_printf("Failed to create endpoint.\n");
                 err_print_calltrace(err);
                 return;
             }
             
-            lmp_chan_init(&new_chan);
+            struct lmp_chan *new_chan =
+                (struct lmp_chan *)malloc(sizeof(struct lmp_chan));
+            lmp_chan_init(new_chan);
 
-            // bootstrap new LMP channel. 
-            new_chan.local_cap = ep_cap;
-            new_chan.remote_cap = lc->remote_cap;
-            new_chan.endpoint = my_ep;
+            // bootstrap new LMP channel
+            new_chan->local_cap = ep_cap;
+            new_chan->remote_cap = remote_cap;
+            new_chan->endpoint = my_ep;
 
-            err = lmp_chan_alloc_recv_slot(&new_chan);
+            err = lmp_chan_alloc_recv_slot(new_chan);
             if (err_is_fail(err)) {
                 debug_printf("Could not allocate receive slot!\n");
                 err_print_calltrace(err);
                 return;
             }
 
-            err = lmp_chan_register_recv(&new_chan, get_default_waitset(), MKCLOSURE(recv_handler, (void *)&new_chan));
+            // Register receive handler to this channel
+            err = lmp_chan_register_recv(new_chan, get_default_waitset(),
+                MKCLOSURE(recv_handler, new_chan));
             if (err_is_fail(err)) {
                 debug_printf("Could not register receive handler\n");
                 err_print_calltrace(err);
                 return;
             }
 
-            // NEW INIT CHANNEL SHOULD BE READY TO RECEIVE Stuff Now. 
+            // Send new endpoint cap back to client
+            err = lmp_chan_send1(new_chan, LMP_SEND_FLAGS_DEFAULT, ep_cap,
+                REQUEST_CHAN);
+            if (err_is_fail(err)) {
+                debug_printf("Failed to send new endpoint.\n");
+                err_print_calltrace(err);
+                return;
+            }
 
-            // if (next_pid < MAX_CLIENTS){
-            //     debug_printf("Sending pid to memeater\n");
-            //     lmp_chan_send2(lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP,
-            //         REQUEST_PID, next_pid++);
-            // } else {
-            //     // TODO handle
-            //     return;
-            // }
             break;
         }
         
+        // Only handles messages that can be contained in a
+        // single pass
         case SEND_TEXT:
         {
             size_t buf_size = (uint32_t) msg.buf.words[1];            
             for(uint8_t i = 0; i < buf_size; i++){
-                msg_buf[i] = msg.buf.words[i+2];
+                msg_buf[i] = msg.buf.words[i+1];
             }
             msg_buf[buf_size] = '\0';
             debug_printf("Received text: %s\n", msg_buf);
         }
         break;
         
+        // Returns a frame capability to the client
         case REQUEST_FRAME_CAP:
         {
 
@@ -156,8 +150,7 @@ void recv_handler(void *lc_in)
                 return;
             }
     
-            uint32_t req_bits = msg.buf.words[1];
-            
+            uint32_t req_bits = msg.buf.words[1];            
             struct capref dest = NULL_CAP;
             
             // Perform the allocation
@@ -167,8 +160,6 @@ void recv_handler(void *lc_in)
                 debug_printf("Failed memserv allocation.\n");
                 err_print_calltrace(err);
             }
-            
-            // client_bytes[pid-1] += ret_bits;
             
             err = lmp_chan_send2(lc, LMP_SEND_FLAGS_DEFAULT, dest,
                 REQUEST_FRAME_CAP, ret_bits);
@@ -266,12 +257,6 @@ int main(int argc, char *argv[])
     if (err_is_fail(err)){
         printf("Could not register receive handler!\n");
         exit(-1);
-    }
-    
-    next_pid = 1;
-
-    for (uint32_t i = 0; i < MAX_CLIENTS; i++) {
-        client_bytes[i] = 0;
     }
     
     while(true) {

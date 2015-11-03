@@ -29,17 +29,19 @@ static void recv_handler(void *rpc_void)
         debug_printf("Could not receive msg from init: %s\n",
             err_getstring(err));
         err_print_calltrace(err);
-        exit(-1); // FIXME notify caller
+        rpc->return_cap = NULL_CAP;
+        return;
     }
 
     if (msg.buf.msglen == 0){
         debug_printf("Bad msg for init.\n");
-        exit(-1); // FIXME notify caller
+        rpc->return_cap = NULL_CAP;
+        return;
     }
     
     uint32_t code = msg.buf.words[0];
     switch(code) {
-        case REQUEST_PID:
+        case REQUEST_CHAN:
         {
             if (capref_is_null(remote_cap)) {
                 debug_printf("Received endpoint cap was null.\n");
@@ -63,7 +65,7 @@ static void recv_handler(void *rpc_void)
         {
             if (capref_is_null(remote_cap)) {
                 debug_printf("Remote_cap is NULL\n");
-                exit(-1);
+                return;
             }
             
             rpc->return_cap = remote_cap;
@@ -80,7 +82,7 @@ static void recv_handler(void *rpc_void)
         debug_printf("Could not allocate receive slot: %s.\n",
             err_getstring(err));
         err_print_calltrace(err);
-        exit(-1);
+        return;
     }
     
     // Register our receive handler
@@ -89,7 +91,7 @@ static void recv_handler(void *rpc_void)
     if (err_is_fail(err)){
         debug_printf("Could not register receive handler!\n");
         err_print_calltrace(err);
-        exit(-1);
+        return;
     }
 }
 
@@ -247,7 +249,6 @@ errval_t aos_rpc_delete(struct aos_rpc *chan, char *path)
  */
 errval_t aos_rpc_init(struct aos_rpc *rpc)
 {
-    // const uint64_t FIRSTEP_BUFLEN = 21u;
     // Get waitset for memeater
     struct waitset *ws = get_default_waitset();
     waitset_init(ws);
@@ -257,11 +258,10 @@ errval_t aos_rpc_init(struct aos_rpc *rpc)
     lmp_chan_init(&(rpc->lc));
     
     // Setup endpoint and allocate associated capability
-    struct capref new_ep;
+    struct capref ep_cap;
     struct lmp_endpoint *my_ep;
     
-
-    errval_t err = endpoint_create(FIRSTEP_BUFLEN, &new_ep, &my_ep);
+    errval_t err = endpoint_create(FIRSTEP_BUFLEN, &ep_cap, &my_ep);
 
     if(err_is_fail(err)){
         debug_printf("Could not allocate new endpoint.\n");
@@ -271,16 +271,15 @@ errval_t aos_rpc_init(struct aos_rpc *rpc)
 
     // Set relevant members of LMP channel
     rpc->lc.endpoint = my_ep;
-    rpc->lc.local_cap = new_ep;
+    rpc->lc.local_cap = ep_cap;
     rpc->lc.remote_cap = cap_initep;
-    rpc->pid = 0;
     
     // Allocate the slot for receiving
     err = lmp_chan_alloc_recv_slot(&rpc->lc);
     if (err_is_fail(err)){
         debug_printf("Could not allocate receive slot!\n");
         err_print_calltrace(err);
-        exit(-1);
+        return err;
     }
     
     // Register our receive handler
@@ -293,14 +292,12 @@ errval_t aos_rpc_init(struct aos_rpc *rpc)
     
     // Request pid from init
     err = lmp_chan_send1(&(rpc->lc), LMP_SEND_FLAGS_DEFAULT,
-                         rpc->lc.local_cap, REQUEST_PID);
+                        rpc->lc.local_cap, REQUEST_CHAN);
     if (err_is_fail(err)) {
         debug_printf("Could not send msg to init: %s.\n",
             err_getstring(err));
         err_print_calltrace(err);
-        exit(-1);
-    } else {
-        debug_printf("Sent request to init.c\n");
+        return err;
     }
 
     // register in paging state
