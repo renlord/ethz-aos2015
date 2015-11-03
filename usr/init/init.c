@@ -62,7 +62,7 @@ void recv_handler(void *lc_in)
         debug_printf("Bad msg for init.\n");
         return; // FIXME notify caller
     }
-
+    
     lc->remote_cap = remote_cap;            
 
     err = lmp_chan_alloc_recv_slot(lc);
@@ -73,18 +73,55 @@ void recv_handler(void *lc_in)
         exit(-1);
     }
     
-    lmp_chan_register_recv(lc, get_default_waitset(),
-        MKCLOSURE(recv_handler, lc_in));
+    lmp_chan_register_recv(lc, get_default_waitset(), MKCLOSURE(recv_handler, lc_in));
     
     uint32_t code = msg.buf.words[0];
-    switch(code){
+    switch(code) {
+        // this ought to be remade to REQUEST_CHAN
         case REQUEST_PID:
         {
             if (capref_is_null(remote_cap)) {
                 debug_printf("Received endpoint cap was null.\n");
                 return;
             }
-    
+
+            struct capref new_ep;
+            struct lmp_endpoint *my_ep; 
+            err = endpoint_create(FIRSTEP_BUFLEN, &new_ep, &my_ep);
+            if (err_is_fail(err)) {
+                debug_printf("failed to create endpoint.\n");
+                err_print_calltrace(err);
+            }
+
+            err = lmp_chan_send0(lc, LMP_SEND_FLAGS_DEFAULT, new_ep);
+            if (err_is_fail(err)) {
+                debug_printf("failed to send new endpoint.\n");
+                err_print_calltrace(err);
+            }
+
+            // bootstrap new LMP channel. 
+            struct lmp_chan new_chan = {
+                .local_cap = new_ep,
+                .remote_cap = lc->remote_cap,
+                .endpoint = my_ep,
+            };
+
+            err = lmp_chan_alloc_recv_slot(&new_chan);
+            if (err_is_fail(err)) {
+                debug_printf("Could not allocate receive slot!\n");
+                err_print_calltrace(err);
+                exit(-1);
+            }
+
+            err = lmp_chan_register_recv(&new_chan, get_default_waitset(), MKCLOSURE(recv_handler, (void *)&new_chan));
+            if (err_is_fail(err)) {
+                debug_printf("Could not register receive handler\n");
+                err_print_calltrace(err);
+                exit(-1);
+            }
+
+            // NEW INIT CHANNEL SHOULD BE READY TO RECEIVE Stuff Now. 
+
             if (next_pid < MAX_CLIENTS){
                 debug_printf("Sending pid to memeater\n");
                 lmp_chan_send2(lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP,
