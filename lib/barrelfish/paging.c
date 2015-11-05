@@ -389,7 +389,10 @@ void page_fault_handler(enum exception_type type, int subtype,
     if(strncmp(obj, prog, MIN(5,strlen(prog))) == 0){
         err = frame_alloc(&frame_cap, req_size, &ret_size);
     } else {
-        err = aos_rpc_get_ram_cap(current.rpc, req_size, &frame_cap, &ret_size);
+        size_t req_bits = log2ceil(req_size);
+        size_t ret_bits;
+        err = aos_rpc_get_ram_cap(current.rpc, req_bits, &frame_cap, &ret_bits);
+        ret_size = (1UL << ret_bits);
     }
     
     if (err != SYS_ERR_OK){

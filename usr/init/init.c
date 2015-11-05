@@ -30,8 +30,6 @@ static coreid_t my_core_id;
 
 static char msg_buf[9];
 
-
-
 void recv_handler(void *lc_in);
 void recv_handler(void *lc_in)
 {
@@ -150,17 +148,20 @@ void recv_handler(void *lc_in)
                 return;
             }
     
-            uint32_t req_bits = msg.buf.words[1];            
+            size_t req_bits = msg.buf.words[1];
+            size_t req_bytes = (1UL << req_bits);
             struct capref dest = NULL_CAP;
             
             // Perform the allocation
-            size_t ret_bits;
-            err = frame_alloc(&dest, req_bits, &ret_bits);
+            size_t ret_bits, ret_bytes;
+            err = frame_alloc(&dest, req_bytes, &ret_bytes);
             if (err_is_fail(err)){
                 debug_printf("Failed memserv allocation.\n");
                 err_print_calltrace(err);
             }
             
+            // Send cap and return bits back to caller
+            ret_bits = log2ceil(ret_bytes);
             err = lmp_chan_send2(lc, LMP_SEND_FLAGS_DEFAULT, dest,
                 REQUEST_FRAME_CAP, ret_bits);
             if (err_is_fail(err)) {
