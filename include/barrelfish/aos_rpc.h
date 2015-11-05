@@ -25,13 +25,13 @@
 enum rpc_code {
     REQUEST_CHAN,
     SEND_TEXT,
-    REQUEST_FRAME_CAP
+    REQUEST_FRAME_CAP,
+    REQUEST_DEV_CAP
 };
 
 typedef uint32_t my_pid_t;
 
 struct aos_rpc {
-    // TODO: add state for your implementation
     struct lmp_chan lc; // lmp channel
     struct capref return_cap; 
     size_t ret_bits;
