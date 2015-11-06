@@ -24,11 +24,19 @@
 
 #define MAX_CLIENTS 50
 #define FIRSTEP_BUFLEN 20u
-
+#define HARD_LIMIT (1UL << 28)
 struct bootinfo *bi;
 static coreid_t my_core_id;
 
-static char msg_buf[9];
+struct client_state *fst_client;
+    
+struct client_state {
+    struct client_state *next;
+    struct lmp_endpoint *ep;
+    size_t alloced;
+    char mailbox[50];
+    size_t char_count;
+};
 
 void recv_handler(void *lc_in);
 void recv_handler(void *lc_in)
@@ -78,6 +86,7 @@ void recv_handler(void *lc_in)
                 debug_printf("Received endpoint cap was null.\n");
                 return;
             }
+                        
 
             // Create new endpoint and channel, and initialize
             struct capref ep_cap;
@@ -97,6 +106,23 @@ void recv_handler(void *lc_in)
             new_chan->local_cap = ep_cap;
             new_chan->remote_cap = remote_cap;
             new_chan->endpoint = my_ep;
+
+
+            // Allocate new client state
+            struct client_state **cur = &fst_client;
+            struct client_state **prev;
+            while(*cur != NULL) {
+                prev = cur;
+                cur = &((*cur)->next);
+            }
+            
+            struct client_state *new_state =
+                (struct client_state *) malloc(sizeof(struct client_state));
+            new_state->next = NULL;
+            new_state->ep = my_ep;
+            new_state->alloced = 0;
+            new_state->char_count = 0;
+            *cur = new_state;
 
             err = lmp_chan_alloc_recv_slot(new_chan);
             if (err_is_fail(err)) {
@@ -122,7 +148,7 @@ void recv_handler(void *lc_in)
                 err_print_calltrace(err);
                 return;
             }
-
+            
             break;
         }
         
@@ -130,12 +156,37 @@ void recv_handler(void *lc_in)
         // single pass
         case SEND_TEXT:
         {
-            size_t buf_size = (uint32_t) msg.buf.words[1];            
-            for(uint8_t i = 0; i < buf_size; i++){
-                msg_buf[i] = msg.buf.words[i+1];
+            
+            struct client_state *cs = fst_client;
+            if(cs == NULL) {
+                debug_printf("Frame cap requested but no clients registered yet.\n");
+                return;
             }
-            msg_buf[buf_size] = '\0';
-            debug_printf("Received text: %s\n", msg_buf);
+            
+            while (cs->ep != lc->endpoint){
+                cs = cs->next;
+                if(cs == NULL) {
+                    debug_printf("Could not find client in list\n");
+                    return;
+                }
+            }
+            
+    
+            for(uint8_t i = 1; i < 9; i++){
+                 cs->mailbox[cs->char_count] = msg.buf.words[i];
+                 cs->char_count++;
+                 
+                 if (msg.buf.words[i] == '\0') {
+                    debug_printf("Text msg received: %s\n",
+                        cs->mailbox);
+
+                    cs->char_count = 0;
+                    break;
+                }
+            }
+            
+            cs->mailbox);
+            
         }
         break;
         
@@ -152,6 +203,25 @@ void recv_handler(void *lc_in)
             size_t req_bytes = (1UL << req_bits);
             struct capref dest = NULL_CAP;
             
+            struct client_state *cs = fst_client;
+            if(cs == NULL) {
+                debug_printf("Frame cap requested but no clients registered yet.\n");
+                return;
+            }
+            
+            while (cs->ep != lc->endpoint){
+                cs = cs->next;
+                if(cs == NULL) {
+                    debug_printf("Could not find client in list\n");
+                    return;
+                }
+            }
+            
+            if (cs->alloced + req_bytes >= HARD_LIMIT){
+                debug_printf("Client request exceeds hard limit.\n");
+                return;
+            }
+            
             // Perform the allocation
             size_t ret_bits, ret_bytes;
             err = frame_alloc(&dest, req_bytes, &ret_bytes);
@@ -159,6 +229,8 @@ void recv_handler(void *lc_in)
                 debug_printf("Failed memserv allocation.\n");
                 err_print_calltrace(err);
             }
+            
+            cs->alloced += ret_bytes;
             
             // Send cap and return bits back to caller
             ret_bits = log2ceil(ret_bytes);
@@ -239,6 +311,7 @@ int main(int argc, char *argv[])
      * sentinel word).
      */
     
+    fst_client = (struct client_state *) malloc(sizeof(struct client_state));
 
     struct lmp_endpoint *my_ep;
     lmp_endpoint_setup(0, FIRSTEP_BUFLEN, &my_ep);

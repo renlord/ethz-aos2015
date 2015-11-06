@@ -726,7 +726,7 @@ void arm_kernel_startup(void)
         assert(err_is_ok(err)); 
         debug(LOG_NOTE, "Dispatcher Cap retyped to Endpoint Cap.\n");
 
-        // // 2
+        // 2
         struct cte *init_ep_cap = caps_locate_slot(CNODE(init_st.taskcn), TASKCN_SLOT_SELFEP);
         assert(init_ep_cap != (struct cte *) NULL);
         err = caps_copy_to_cnode(init_st.taskcn, TASKCN_SLOT_INITEP, init_ep_cap,

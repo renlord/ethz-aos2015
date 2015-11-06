@@ -79,15 +79,15 @@ static void free_array(void **array, uint32_t array_size)
 static void perform_array_test(size_t chump_size, uint32_t array_size);
 static void perform_array_test(size_t chump_size, uint32_t array_size)
 {
-    size_t free_s, alloc_s;
+    size_t free_s, alloc_s, max_s;
             
     debug_printf("Creating array...\n");
     void **array = allocate_array(chump_size, array_size);
     debug_printf("Array created with start addr 0x%08x.\n", array);
     
-    debug_get_free_space(&free_s, &alloc_s);
-    debug_printf("Free space: %d MB, allocated space: %d MB\n",
-        (free_s >> 20), (alloc_s >> 20));
+    debug_get_free_space(&free_s, &alloc_s, &max_s);
+    debug_printf("Free space: %d MB, allocated space: %d MB, max blob: %d MB\n",
+        (free_s >> 20), (alloc_s >> 20), (max_s >> 20));
     
     debug_printf("Checking array...\n");
     check_array(array, array_size);
@@ -97,9 +97,9 @@ static void perform_array_test(size_t chump_size, uint32_t array_size)
     free_array(array, array_size);
     debug_printf("Array freed.\n");
     
-    debug_get_free_space(&free_s, &alloc_s);
-    debug_printf("Free space: %d MB, allocated space: %d MB\n",
-        (free_s >> 20), (alloc_s >> 20));
+    debug_get_free_space(&free_s, &alloc_s, &max_s);
+    debug_printf("Free space: %d MB, allocated space: %d MB, max blob: %d MB\n",
+        (free_s >> 20), (alloc_s >> 20), (max_s >> 20));
 }
 
 int main(int argc, char *argv[])
@@ -115,7 +115,7 @@ int main(int argc, char *argv[])
         exit(-1);
     }
     
-    aos_rpc_send_string(&rpc, "checker");
+    aos_rpc_send_string(&rpc, "much longer text");
     
     debug_printf("Performing small chump test...\n");
     perform_array_test(SMALL_CHUMP_SIZE, SMALL_CHUMP_ARRAY_SIZE);

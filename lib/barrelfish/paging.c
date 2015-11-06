@@ -246,10 +246,11 @@ static size_t debug_get_alloc_space_aux(struct node *cur)
     return size;
 }
 
-void debug_get_free_space(size_t *free_s, size_t *alloc_s)
+void debug_get_free_space(size_t *free_s, size_t *alloc_s, size_t *max_s)
 {
     *free_s = debug_get_free_space_aux(current.root);
     *alloc_s = debug_get_alloc_space_aux(current.root);
+    *max_s = current.root->max_size;
 }
 
 static void buddy_dealloc(struct node *cur, lvaddr_t addr) 

@@ -16,6 +16,10 @@
 #include <barrelfish/paging.h>
 
 #define FIRSTEP_BUFLEN 20u
+#define MIN(a,b) \
+    ({ __typeof__ (a) _a = (a); \
+     __typeof__ (b) _b = (b); \
+     _a < _b ? _a : _b; })
 
 static void recv_handler(void *rpc_void);
 static void recv_handler(void *rpc_void) 
@@ -99,20 +103,26 @@ errval_t aos_rpc_send_string(struct aos_rpc *rpc, const char *string)
 {
     struct lmp_chan lc = rpc->lc;
 
-    if (strlen(string) > 7) {
-        debug_printf("aos_rpc_send_string currently does not support long strings T_T\n");
-    }
-    char buf[7];
-    memcpy(buf, string, 7);
-
+    size_t slen = strlen(string) + 1; // adjust for null-character
+    size_t rlen = 0;
+    char buf[8];
     errval_t err;
-    err = lmp_chan_send(&lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP,
-                        9, SEND_TEXT, 7, buf[0], buf[1], buf[2],
-                        buf[3], buf[4], buf[5], buf[6]);
+    
+    while (rlen < slen) {
+        size_t chunk_size = MIN(slen-rlen, 8);
+        memcpy(buf, string, chunk_size);
+        err = lmp_chan_send(&lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP,
+                            9, SEND_TEXT, buf[0], buf[1], buf[2],
+                            buf[3], buf[4], buf[5], buf[6], buf[7]);
 
-    if (err_is_fail(err)) {
-        return err;
-    } 
+        if (err_is_fail(err)) {
+            return err;
+        } 
+
+        string = &(string[8]);
+        rlen += 8;
+
+    }
 
     return SYS_ERR_OK;
 }
@@ -132,7 +142,7 @@ errval_t aos_rpc_get_ram_cap(struct aos_rpc *rpc, size_t req_bits,
     
     err = lmp_chan_send2(&rpc->lc, LMP_SEND_FLAGS_DEFAULT,
                          rpc->lc.local_cap, REQUEST_FRAME_CAP,
-                         req_bits);
+                         req_bits); // TODO transfer error code
     
     if (err_is_fail(err)) {
         debug_printf("Could not send msg to init: %s.\n",
