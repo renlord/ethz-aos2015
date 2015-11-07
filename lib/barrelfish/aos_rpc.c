@@ -77,6 +77,18 @@ static void recv_handler(void *rpc_void)
         }
         break;
 
+        case REQUEST_DEV_CAP:
+        {
+            if (capref_is_null(remote_cap)) {
+                debug_printf("Remote_cap is NULL\n");
+                return;
+            }
+            
+            rpc->return_cap = remote_cap;
+            rpc->ret_bits = msg.buf.words[1];
+        }
+        break;
+
         default:
         debug_printf("Wrong rpc code!\n");
     }
@@ -131,15 +143,16 @@ errval_t aos_rpc_send_string(struct aos_rpc *rpc, const char *string)
 errval_t aos_rpc_get_ram_cap(struct aos_rpc *rpc, size_t req_bits,
                              struct capref *dest, size_t *ret_bits)
 {    
-    // Send our endpoint capability
+    // Allocate receive slot
     errval_t err = lmp_chan_alloc_recv_slot(&rpc->lc);
     if (err_is_fail(err)){
         debug_printf("Could not allocate receive slot: %s.\n",
             err_getstring(err));
         err_print_calltrace(err);
-        exit(-1);
+        return err_push(err, LIB_ERR_LMP_ALLOC_RECV_SLOT);
     }
     
+    // Request frame cap from init
     err = lmp_chan_send2(&rpc->lc, LMP_SEND_FLAGS_DEFAULT,
                          rpc->lc.local_cap, REQUEST_FRAME_CAP,
                          req_bits); // TODO transfer error code
@@ -148,7 +161,7 @@ errval_t aos_rpc_get_ram_cap(struct aos_rpc *rpc, size_t req_bits,
         debug_printf("Could not send msg to init: %s.\n",
             err_getstring(err));
         err_print_calltrace(err);
-        exit(-1);
+        return err_push(err, LIB_ERR_LMP_CHAN_SEND);
     }
 
     // Listen for response from init. When recv_handler returns,
@@ -157,16 +170,44 @@ errval_t aos_rpc_get_ram_cap(struct aos_rpc *rpc, size_t req_bits,
     *dest = rpc->return_cap;
     *ret_bits = rpc->ret_bits;
     
-    return err;
+    return SYS_ERR_OK;
 }
 
 
-errval_t aos_rpc_get_dev_cap(struct aos_rpc *chan, lpaddr_t paddr,
+errval_t aos_rpc_get_dev_cap(struct aos_rpc *rpc, lpaddr_t paddr,
                              size_t length, struct capref *retcap,
                              size_t *retlen)
 {
     // TODO (milestone 4): implement functionality to request device memory
     // capability.
+    
+    // Allocate recieve slot
+    errval_t err = lmp_chan_alloc_recv_slot(&rpc->lc);
+    if (err_is_fail(err)){
+        debug_printf("Could not allocate receive slot: %s.\n",
+            err_getstring(err));
+        err_print_calltrace(err);
+        return err_push(err, LIB_ERR_LMP_ALLOC_RECV_SLOT);
+    }
+    
+    // Send request to init
+    err = lmp_chan_send3(&rpc->lc, LMP_SEND_FLAGS_DEFAULT,
+                         rpc->lc.local_cap, REQUEST_DEV_CAP, paddr,
+                         length);
+    
+    if (err_is_fail(err)) {
+        debug_printf("Could not send dev cap request to init: %s.\n",
+            err_getstring(err));
+        err_print_calltrace(err);
+        return err_push(err, LIB_ERR_LMP_CHAN_SEND);
+    }
+
+    // Listen for response from init. When recv_handler returns,
+    // cap should be in rpc->return_cap
+    event_dispatch(get_default_waitset());
+    *retcap = rpc->return_cap;
+    *retlen = rpc->ret_bits;
+    
     return SYS_ERR_OK;
 }
 

@@ -299,9 +299,9 @@ static void buddy_dealloc(struct node *cur, lvaddr_t addr)
 
 uint32_t stack[EXC_STACK_SIZE];
 
-static void allocate_pt(struct paging_state *st,
-                        lvaddr_t addr,
-                        struct capref frame_cap)
+static errval_t allocate_pt(struct paging_state *st, lvaddr_t addr,
+                            struct capref frame_cap, size_t bytes,
+                            int flags)
 {
     errval_t err;
     
@@ -311,6 +311,19 @@ static void allocate_pt(struct paging_state *st,
         ARM_L2_OFFSET(addr)+(ARM_L1_OFFSET(addr)%4)*ARM_L2_MAX_ENTRIES;
 
     
+    // Calculate how many entries in the L2-pagetable is necessary to
+    // accommodate the request
+    uint32_t frames = bytes / (BASE_PAGE_SIZE*ENTRIES_PER_FRAME);
+    if (bytes % (BASE_PAGE_SIZE*ENTRIES_PER_FRAME) > 0) {
+        frames++;
+    }
+    
+    // TODO remove
+    debug_printf("for bytes: %d, BASE_PAGE_SIZE: %d, ENTRIES_PER_FRAME %d\n",
+        bytes, BASE_PAGE_SIZE, ENTRIES_PER_FRAME);
+    debug_printf("we have %d frames and thus %d entries\n",
+        frames, frames*ENTRIES_PER_FRAME);
+    
     // Check if we have l2 capabilities and request if not
     struct capref *l2_cap = &(st->l2_caps[l1_slot]);
     if(capref_is_null(*l2_cap)) {
@@ -319,9 +332,9 @@ static void allocate_pt(struct paging_state *st,
         
         // Insert L2 pagetable in L1 pagetable
         err = vnode_map(st->l1_cap, *l2_cap, l1_slot,
-                        VREGION_FLAGS_READ_WRITE, 0, 1);
+                        flags, 0, 1);
         
-        if (err != SYS_ERR_OK){
+        if (err_is_fail(err)){
             debug_printf("Could not insert L2 pagetable in L1 pagetable for addr 0x%08x: %s\n", addr, err_getstring(err));
             exit(-1); // TODO handle
         }
@@ -329,12 +342,14 @@ static void allocate_pt(struct paging_state *st,
     
     // Map frame capability in L2 pagetable
     err = vnode_map(*l2_cap, frame_cap, ROUND_DOWN(l2_slot, ENTRIES_PER_FRAME),
-                    VREGION_FLAGS_READ_WRITE, 0, ENTRIES_PER_FRAME);
-    if (err != SYS_ERR_OK){
+                    flags, 0, frames*ENTRIES_PER_FRAME);
+    if (err_is_fail(err)){
         debug_printf("Could not insert frame in L2 pagetable for addr 0x%08x: %s\n",
                      addr, err_getstring(err));
         exit(-1); // TODO handle;                
     }
+    
+    return err;
 }
 
 
@@ -410,7 +425,8 @@ void page_fault_handler(enum exception_type type, int subtype,
     }
      
     // Allocate L1 and L2 entries, if needed, and insert frame cap
-    allocate_pt(&current, (lvaddr_t)addr, frame_cap);
+    allocate_pt(&current, (lvaddr_t)addr, frame_cap,
+                ret_size, VREGION_FLAGS_READ_WRITE);
 }
 
 errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
@@ -464,7 +480,7 @@ errval_t paging_init(void)
     // avoid code duplication.
     struct capref l1_cap = {
         .cnode = cnode_page,
-        .slot = 0,
+        .slot = 0, 
     };
 
     set_current_paging_state(&current);
@@ -476,6 +492,19 @@ errval_t paging_init(void)
 void paging_init_onthread(struct thread *t)
 {
     // TODO: setup exception handler for thread `t'.
+    void *buf;
+    errval_t err = paging_alloc(&current, &buf, EXC_STACK_SIZE);
+    if (err_is_fail(err)) {
+        debug_printf("Could not allocate exception stack for new thread: %s\n",
+            err_getstring(err));
+        err_push(err, LIB_ERR_MALLOC_FAIL);
+        err_print_calltrace(err);
+        t = NULL;
+        return;
+    }
+    
+    t->exception_stack = buf;
+    t->exception_stack_top = buf+EXC_STACK_SIZE*4; // TODO minus 1 here?
     t->exception_handler = page_fault_handler;
 }
 
@@ -585,6 +614,10 @@ errval_t paging_map_frame_attr(struct paging_state *st, void **buf,
 {
     errval_t err = paging_alloc(st, buf, bytes);
     if (err_is_fail(err)) {
+        debug_printf("paging_map_frame_attr: Could not allocate space for frame cap: %s\n",
+            err_getstring(err));
+        err_push(err, LIB_ERR_MALLOC_FAIL);
+        err_print_calltrace(err);
         return err;
     }
 
@@ -599,9 +632,14 @@ errval_t paging_map_frame_attr(struct paging_state *st, void **buf,
 errval_t paging_map_fixed_attr(struct paging_state *st, lvaddr_t vaddr,
         struct capref frame, size_t bytes, int flags)
 {
-    // TODO: you will need this functionality in later assignments. Try to
-    // keep this in mind when designing your self-paging system.
-    return SYS_ERR_OK;
+    errval_t err = allocate_pt(st, vaddr, frame, bytes, flags);
+    if (err_is_fail(err)){
+        debug_printf("Could not map fixed attribute: %s", err_getstring(err));
+        err_push(err, LIB_ERR_MALLOC_FAIL);
+        err_print_calltrace(err);
+    }
+    
+    return err;
 }
 
 /**

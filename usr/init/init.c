@@ -20,6 +20,7 @@
 #include <barrelfish/debug.h>
 #include <barrelfish/lmp_chan.h>
 #include <barrelfish/aos_rpc.h>
+#include <omap44xx_map.h>
 
 
 #define MAX_CLIENTS 50
@@ -290,8 +291,23 @@ int main(int argc, char *argv[])
     // that's referenced by the capability in TASKCN_SLOT_IO in the task
     // cnode. Additionally, export the functionality of that system to other
     // domains by implementing the rpc call `aos_rpc_get_dev_cap()'.
-    debug_printf("initialized dev memory management\n");
+    debug_printf("Initialized dev memory management\n");
+    void *buf;
+    
+    const uint32_t base_io = 0x40000000;
+    const uint32_t uart3_offset =  OMAP44XX_MAP_L4_PER_UART3-base_io;
+    const uint32_t range = uart3_offset + OMAP44XX_MAP_L4_PER_UART3_SIZE;
+    
+    err = paging_map_frame_attr(get_current_paging_state(), &buf, range,
+                                cap_io, VREGION_FLAGS_READ_WRITE, NULL, NULL);
+    
+    if (err_is_fail(err)) {
+        debug_printf("Could not map io cap: %s\n", err_getstring(err));
+        err_print_calltrace(err);
+        abort();
+    }
 
+        
 
 
     // TODO (milestone 3) STEP 2:
