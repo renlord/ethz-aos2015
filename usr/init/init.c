@@ -20,17 +20,24 @@
 #include <barrelfish/debug.h>
 #include <barrelfish/lmp_chan.h>
 #include <barrelfish/aos_rpc.h>
+#include <barrelfish/sys_debug.h>
 #include <omap44xx_map.h>
 
 
 #define MAX_CLIENTS 50
 #define FIRSTEP_BUFLEN 20u
 #define HARD_LIMIT (1UL << 28)
+
 struct bootinfo *bi;
 static coreid_t my_core_id;
 
-struct client_state *fst_client;
+static struct client_state *fst_client;
     
+static volatile uint32_t *uart3_thr = NULL;
+static volatile uint32_t *uart3_rhr = NULL;
+static volatile uint32_t *uart3_fcr = NULL;
+static volatile uint32_t *uart3_lsr = NULL;
+
 struct client_state {
     struct client_state *next;
     struct lmp_endpoint *ep;
@@ -180,14 +187,13 @@ void recv_handler(void *lc_in)
                  if (msg.buf.words[i] == '\0') {
                     debug_printf("Text msg received: %s\n",
                         cs->mailbox);
-
+                    
                     cs->char_count = 0;
+                    
+                    // TODO actually handle receiving a msg
                     break;
                 }
             }
-            
-            cs->mailbox);
-            
         }
         break;
         
@@ -250,6 +256,38 @@ void recv_handler(void *lc_in)
     }    
 }
 
+void set_uart3_registers(lvaddr_t base);
+void set_uart3_registers(lvaddr_t base)
+{
+    uart3_thr = (uint32_t *)((uint32_t)base + 0x0000);
+    uart3_rhr = (uint32_t *)((uint32_t)base + 0x0000);
+    uart3_fcr = (uint32_t *)((uint32_t)base + 0x0008);
+    uart3_lsr = (uint32_t *)((uint32_t)base + 0x0014);
+}
+
+void my_print(const char *buf);
+void my_print(const char *buf)
+{
+    assert(uart3_lsr && uart3_thr);
+    for (uint32_t i = 0; i < strlen(buf); i++){
+        while(*uart3_lsr == 0x20);
+        // FIXME why not this? --> while((*uart3_lsr & 0x20) != 0); 
+        *uart3_thr = buf[i];
+    }
+}
+
+void my_read(void);
+void my_read(void)
+{
+    while (true) {
+        *uart3_fcr &= ~1; // write 0 to bit 0
+        // *uart3_fcr |= 2; // write 1 to bit 1
+        *((uint8_t *)uart3_rhr) = 0;
+        while ((*uart3_lsr & 1) == 0);
+        my_print((char *)uart3_rhr);
+    }
+}
+
 int main(int argc, char *argv[])
 {
     errval_t err;
@@ -292,24 +330,29 @@ int main(int argc, char *argv[])
     // cnode. Additionally, export the functionality of that system to other
     // domains by implementing the rpc call `aos_rpc_get_dev_cap()'.
     debug_printf("Initialized dev memory management\n");
+        
+    debug_printf("Allocating cap_io\n");
     void *buf;
-    
-    const uint32_t base_io = 0x40000000;
-    const uint32_t uart3_offset =  OMAP44XX_MAP_L4_PER_UART3-base_io;
-    const uint32_t range = uart3_offset + OMAP44XX_MAP_L4_PER_UART3_SIZE;
-    
-    err = paging_map_frame_attr(get_current_paging_state(), &buf, range,
-                                cap_io, VREGION_FLAGS_READ_WRITE, NULL, NULL);
-    
+    int flags = VREGION_FLAGS_READ_WRITE | KPI_PAGING_FLAGS_NOCACHE;
+    err = paging_map_frame_attr(get_current_paging_state(), &buf, (1UL<<30),
+                                cap_io, flags, NULL, NULL);
+    debug_printf("Done.\n");
+
     if (err_is_fail(err)) {
         debug_printf("Could not map io cap: %s\n", err_getstring(err));
         err_print_calltrace(err);
         abort();
     }
+    
+    const uint32_t base_io = 0x40000000;
+    const uint32_t uart3_vaddr =
+        (OMAP44XX_MAP_L4_PER_UART3-base_io)+(lvaddr_t)buf;
 
-        
-
-
+    set_uart3_registers(uart3_vaddr);
+    
+    my_print("mic check, 1!\n");
+    my_read();
+    
     // TODO (milestone 3) STEP 2:
     // get waitset
     struct waitset *ws = get_default_waitset();
@@ -349,6 +392,7 @@ int main(int argc, char *argv[])
         exit(-1);
     }
     
+    debug_printf("Entering dispatch loop\n");
     while(true) {
         event_dispatch(get_default_waitset());
     }
