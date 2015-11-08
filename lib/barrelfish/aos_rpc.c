@@ -223,6 +223,9 @@ errval_t aos_rpc_serial_putchar(struct aos_rpc *chan, char c)
 {
     // TODO (milestone 4): implement functionality to send a character to the
     // serial port.
+    
+
+
     return SYS_ERR_OK;
 }
 

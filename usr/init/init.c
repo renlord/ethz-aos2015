@@ -279,12 +279,23 @@ void my_print(const char *buf)
 void my_read(void);
 void my_read(void)
 {
+    char buf[256];
+    memset(buf, '\0', 256);
+
+    size_t i = 0;
+
     while (true) {
         *uart3_fcr &= ~1; // write 0 to bit 0
         // *uart3_fcr |= 2; // write 1 to bit 1
         *((uint8_t *)uart3_rhr) = 0;
         while ((*uart3_lsr & 1) == 0);
         my_print((char *)uart3_rhr);
+        memcpy(&buf[i++], (char *) uart3_rhr, 1);
+        if (*uart3_rhr == 13) { // ENTER keystroke.
+            debug_printf("cur buf: %s\n", buf);
+            printf("\n");
+            i = 0;
+        }
     }
 }
 
@@ -350,9 +361,17 @@ int main(int argc, char *argv[])
 
     set_uart3_registers(uart3_vaddr);
     
-    my_print("mic check, 1!\n");
-    my_read();
-    
+    //my_print("mic check, 1!\n");
+    //my_read();
+
+    struct thread *input_reader = thread_create((thread_func_t) my_read, NULL);
+    err = thread_detach(input_reader);
+
+    if (err_is_fail(err)) {
+        debug_printf("Failed to detach Input Reading Thread. %s\n", err_getstring(err));
+        err_print_calltrace(err);
+    }
+        
     // TODO (milestone 3) STEP 2:
     // get waitset
     struct waitset *ws = get_default_waitset();
