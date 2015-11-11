@@ -369,7 +369,7 @@ static errval_t allocate_pt(struct paging_state *st, lvaddr_t addr,
             err = vnode_map(st->l1_cap, *l2_cap, l1_slot, flags, 0, 1);
 
             if (err_is_fail(err)) {
-                debug_printf("error here\n");
+                debug_printf("Could not insert L2 pagetable in L1 pagetable for addr 0x%08x: %s\n", addr, err_getstring(err));
                 err_print_calltrace(err);
                 return err;
             }
