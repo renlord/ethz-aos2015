@@ -80,10 +80,10 @@ static void recv_handler(void *rpc_void)
         case REQUEST_DEV_CAP:
         {
             if (capref_is_null(remote_cap)) {
-                debug_printf("Remote_cap is NULL\n");
+                debug_printf("remote_cap is NULL\n");
                 return;
             }
-            
+
             rpc->return_cap = remote_cap;
             rpc->ret_bits = msg.buf.words[1];
         }
@@ -173,7 +173,6 @@ errval_t aos_rpc_get_ram_cap(struct aos_rpc *rpc, size_t req_bits,
     return SYS_ERR_OK;
 }
 
-
 errval_t aos_rpc_get_dev_cap(struct aos_rpc *rpc, lpaddr_t paddr,
                              size_t length, struct capref *retcap,
                              size_t *retlen)
@@ -189,7 +188,7 @@ errval_t aos_rpc_get_dev_cap(struct aos_rpc *rpc, lpaddr_t paddr,
         err_print_calltrace(err);
         return err_push(err, LIB_ERR_LMP_ALLOC_RECV_SLOT);
     }
-    
+
     // Send request to init
     err = lmp_chan_send3(&rpc->lc, LMP_SEND_FLAGS_DEFAULT,
                          rpc->lc.local_cap, REQUEST_DEV_CAP, paddr,
@@ -205,6 +204,29 @@ errval_t aos_rpc_get_dev_cap(struct aos_rpc *rpc, lpaddr_t paddr,
     // Listen for response from init. When recv_handler returns,
     // cap should be in rpc->return_cap
     event_dispatch(get_default_waitset());
+
+    /* MEMORY STUFF HAPPENS HERE */
+
+    // allocate space in Virtual Memory for the Device Memory
+    void *va = malloc(length);
+
+    // we then compute the slot offset from the base page table using the virtual address
+    // provided.
+
+    // assert that the requested device physical address is greater than 0x40000000
+    assert(paddr > 0x40000000); 
+    
+    uint64_t start = (uint64_t) (paddr - 0x40000000);
+    
+    err = paging_map_device(get_current_paging_state(), (lvaddr_t) va, rpc->return_cap, 
+            start, length, VREGION_FLAGS_READ_WRITE);
+
+    if (err_is_fail(err)) {
+        debug_printf("failed to map memory device to local virtual memory. %s\n", 
+                err_getstring(err));
+        err_print_calltrace(err);
+    }
+
     *retcap = rpc->return_cap;
     *retlen = rpc->ret_bits;
     
@@ -306,7 +328,6 @@ errval_t aos_rpc_init(struct aos_rpc *rpc)
     // Get waitset for memeater
     struct waitset *ws = get_default_waitset();
     waitset_init(ws);
-
 
     // Initialize LMP channel
     lmp_chan_init(&(rpc->lc));

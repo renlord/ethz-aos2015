@@ -305,7 +305,6 @@ static errval_t allocate_pt(struct paging_state *st, lvaddr_t addr,
 {
     errval_t err = SYS_ERR_OK;
     
-    
     // Relevant pagetable slots
     cslot_t l1_slot = ARM_L1_OFFSET(addr)>>2;
     
@@ -318,10 +317,10 @@ static errval_t allocate_pt(struct paging_state *st, lvaddr_t addr,
         
         // In each new iteration we need to make a copy of the
         // capability before mapping
-        if (i > 0){
+        if (i > 0) {
             struct capref copy;
             err = devframe_type(&copy, frame_cap, log2ceil(bytes));
-            if (err_is_fail(err)){
+            if (err_is_fail(err)) {
                 debug_printf("Could not copy capref: %s\n", err_getstring(err));
                 err_print_calltrace(err);
                 return err;                
@@ -367,11 +366,10 @@ static errval_t allocate_pt(struct paging_state *st, lvaddr_t addr,
             arml2_alloc(l2_cap);
             
             // Insert L2 pagetable in L1 pagetable
-            err = vnode_map(st->l1_cap, *l2_cap, l1_slot,
-                            flags, 0, 1);
+            err = vnode_map(st->l1_cap, *l2_cap, l1_slot, flags, 0, 1);
             
-            if (err_is_fail(err)){
-                debug_printf("Could not insert L2 pagetable in L1 pagetable for addr 0x%08x: %s\n", addr, err_getstring(err));
+            if (err_is_fail(err)) {
+                debug_printf("error here\n");
                 err_print_calltrace(err);
                 return err;                
             }
@@ -393,6 +391,56 @@ static errval_t allocate_pt(struct paging_state *st, lvaddr_t addr,
     return err;
 }
 
+errval_t paging_map_device(struct paging_state *st, lvaddr_t addr,
+                            struct capref frame_cap, uint64_t start_offset, 
+                            size_t length, int flags) 
+{
+    errval_t err = SYS_ERR_OK;
+
+    cslot_t l1_slot = ARM_L1_OFFSET(addr) >> 2;
+    uint64_t l1_entries = DIVIDE_ROUND_UP(length, BASE_PAGE_SIZE*(ARM_L1_MAX_ENTRIES >> 2));
+
+    size_t l2_entries_mapped = 0;
+
+    for (size_t i = 0; i < l1_entries; i++, l1_slot++) {
+        struct capref *l2_cap = &(st->l2_caps[l1_slot]);
+
+        if (capref_is_null(*l2_cap)) {
+            arml2_alloc(l2_cap);
+
+            err = vnode_map(st->l1_cap, *l2_cap, l1_slot, flags, 0, 1);
+
+            if (err_is_fail(err)) {
+                debug_printf("could not insert L2 PT in L1 PT for device at addr: 0x%08x. %s\n", 
+                        addr, err_getstring(err));
+                err_print_calltrace(err);
+            }
+        }
+
+        lvaddr_t next_addr = addr + l2_entries_mapped * BASE_PAGE_SIZE;
+        lvaddr_t next_bytes = length - l2_entries_mapped * BASE_PAGE_SIZE;
+
+        size_t cap_offset = l2_entries_mapped * BASE_PAGE_SIZE + start_offset;
+        cslot_t l2_slot = ARM_L2_OFFSET(next_addr) + (ARM_L1_OFFSET(next_addr) % 4) * 
+            ARM_L2_MAX_ENTRIES;
+
+        uint64_t pages = DIVIDE_ROUND_UP(next_bytes, BASE_PAGE_SIZE);
+        uint64_t l2_entries = ROUND_UP(pages, ENTRIES_PER_FRAME);
+        l2_entries = MIN(l2_entries, (ARM_L2_MAX_ENTRIES << 2) - l2_slot);
+
+        err = vnode_map(*l2_cap, cap_io, ROUND_DOWN(l2_slot, ENTRIES_PER_FRAME), flags, 
+                cap_offset, l2_entries);
+
+        if (err_is_fail(err)) {
+            debug_printf("could not insert cap io frame in L2 PT in addr 0x%08x. %s\n", addr,
+                    err_getstring(err));
+            err_print_calltrace(err);
+        } 
+
+        l2_entries_mapped += l2_entries;
+    } 
+    return err;
+}
 
 void page_fault_handler(enum exception_type type, int subtype,
                         void *addr, arch_registers_state_t *regs,

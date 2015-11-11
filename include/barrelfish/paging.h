@@ -144,6 +144,11 @@ errval_t paging_map_fixed_attr(struct paging_state *st, lvaddr_t vaddr,
  */
 errval_t paging_unmap(struct paging_state *st, const void *region);
 
+/**
+ * \brief maps device frame to userland virtual memory space 
+ */
+errval_t paging_map_device(struct paging_state *st, lvaddr_t addr, struct capref frame_cap, 
+        uint64_t start_offset, size_t length, int flags);
 
 /// Map user provided frame while allocating VA space for it
 static inline errval_t paging_map_frame(struct paging_state *st, void **buf,

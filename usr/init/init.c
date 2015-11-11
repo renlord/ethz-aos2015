@@ -250,9 +250,39 @@ void recv_handler(void *lc_in)
                 exit(-1);
             }
             break;
-         }
+        }
+        
+        case REQUEST_DEV_CAP:
+        {
+            if (capref_is_null(remote_cap)) {
+                debug_printf("Received endpoint cap was null.\n");
+                return;
+            }
+            
+            //err = devframe_type(&dest, cap_io, cap_io.cnode.size_bits);
+            // allocate a frame for vnode
+            if (err_is_fail(err)) {
+                debug_printf("Could not copy TASKCN_SLOT_IO Capability. %s\n", err);
+                err_print_calltrace(err);
+                return;
+            }
+
+            err = lmp_chan_send1(lc, LMP_SEND_FLAGS_DEFAULT, cap_io, REQUEST_DEV_CAP);
+
+            if (err_is_fail(err)) {
+                debug_printf("failed to send copy of cap io. %s\n", err);
+                err_push(err, LIB_ERR_LMP_CHAN_SEND);
+                return;
+            }
+
+            break;
+        }
+
         default:
-        debug_printf("Wrong code: %d\n", code);
+        {
+            // include LIB_ERR_NOT_IMPLEMENTED? 
+            debug_printf("Wrong code: %d\n", code);
+        }
     }    
 }
 
