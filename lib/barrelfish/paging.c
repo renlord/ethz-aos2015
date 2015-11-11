@@ -304,17 +304,17 @@ static errval_t allocate_pt(struct paging_state *st, lvaddr_t addr,
                             int flags)
 {
     errval_t err = SYS_ERR_OK;
-    
+
     // Relevant pagetable slots
     cslot_t l1_slot = ARM_L1_OFFSET(addr)>>2;
-    
+
     uint32_t l1_entries =
         DIVIDE_ROUND_UP(bytes, BASE_PAGE_SIZE*(ARM_L1_MAX_ENTRIES>>2));
-        
+
     // Check if we have l2 capabilities and request if not
     size_t l2_entries_mapped = 0;
     for(uint32_t i = 0; i < l1_entries; i++, l1_slot++){
-        
+
         // In each new iteration we need to make a copy of the
         // capability before mapping
         if (i > 0) {
@@ -323,31 +323,31 @@ static errval_t allocate_pt(struct paging_state *st, lvaddr_t addr,
             if (err_is_fail(err)) {
                 debug_printf("Could not copy capref: %s\n", err_getstring(err));
                 err_print_calltrace(err);
-                return err;                
+                return err;
             } else {
                 frame_cap = copy;
             }
         }
-        
+
         lvaddr_t next_addr = addr+l2_entries_mapped*BASE_PAGE_SIZE;
         lvaddr_t next_bytes = bytes-l2_entries_mapped*BASE_PAGE_SIZE;
         size_t cap_offset = l2_entries_mapped*BASE_PAGE_SIZE;
-        
+
         // Sanity checks
         assert(next_addr < addr+bytes);
         assert(0 < next_bytes && next_bytes <= bytes);
         assert(cap_offset < bytes);
-        
+
         // Next starting l2-slot
         cslot_t l2_slot =
             ARM_L2_OFFSET(next_addr)+(ARM_L1_OFFSET(next_addr)%4)*ARM_L2_MAX_ENTRIES;
-        
+
         // Number of entries in the L2-pagetable
         uint32_t pages = DIVIDE_ROUND_UP(next_bytes, BASE_PAGE_SIZE);
         uint32_t l2_entries = ROUND_UP(pages, ENTRIES_PER_FRAME);
         l2_entries = MIN(l2_entries, (ARM_L2_MAX_ENTRIES<<2)-l2_slot);
-        
-        
+
+
         // // TODO remove
         // debug_printf("next_bytes: %d\n", next_bytes);
         // debug_printf("next_addr: 0x%08x\n", next_addr);
@@ -357,24 +357,24 @@ static errval_t allocate_pt(struct paging_state *st, lvaddr_t addr,
         // debug_printf("l1_entries: %d\n", l1_entries);
         // debug_printf("l2_entries: %d\n", l2_entries);
         // debug_printf("cap_offset: %d\n", cap_offset);
-        
-        
+
+
         // Allocate and insert l2-capability
         struct capref *l2_cap = &(st->l2_caps[l1_slot]);
         if(capref_is_null(*l2_cap)) {
             // Allocate capability
             arml2_alloc(l2_cap);
-            
+
             // Insert L2 pagetable in L1 pagetable
             err = vnode_map(st->l1_cap, *l2_cap, l1_slot, flags, 0, 1);
-            
+
             if (err_is_fail(err)) {
                 debug_printf("error here\n");
                 err_print_calltrace(err);
-                return err;                
+                return err;
             }
         }
-        
+
         // Map frame/dev capability in L2 pagetable
         err = vnode_map(*l2_cap, frame_cap, ROUND_DOWN(l2_slot, ENTRIES_PER_FRAME),
                         flags, cap_offset, l2_entries);
@@ -382,12 +382,12 @@ static errval_t allocate_pt(struct paging_state *st, lvaddr_t addr,
             debug_printf("Could not insert frame in L2 pagetable for addr 0x%08x: %s\n",
                          addr, err_getstring(err));
             err_print_calltrace(err);
-            return err;                
+            return err;
         }
-        
+
         l2_entries_mapped += l2_entries;
     }
-        
+
     return err;
 }
 
@@ -491,7 +491,7 @@ void page_fault_handler(enum exception_type type, int subtype,
     const char *obj = "init";
     const char *prog = disp_name();
 
-    if(strncmp(obj, prog, MIN(5,strlen(prog))) == 0){
+    if(strlen(prog) == 4 && strncmp(obj, prog, 4) == 0){
         err = frame_alloc(&frame_cap, req_size, &ret_size);
     } else {
         size_t req_bits = log2ceil(req_size);

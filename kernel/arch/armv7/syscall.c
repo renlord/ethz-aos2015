@@ -484,6 +484,18 @@ static struct sysret handle_irq_table_delete( struct capability* to,
     return SYSRET(irq_table_delete(sa->arg2));
 }
 
+static struct sysret handle_irq_table_ack( struct capability* to,
+        arch_registers_state_t* context,
+        int argc
+        )
+{
+    struct registers_arm_syscall_args* sa = &context->syscall_args;
+
+    user_ack_interrupt(sa->arg2);
+
+    return SYSRET(SYS_ERR_OK);
+}
+
 static struct sysret dispatcher_dump_ptables(
     struct capability* to,
     arch_registers_state_t* context,
@@ -537,6 +549,7 @@ static invocation_t invocations[ObjType_Num][CAP_MAX_CMD] = {
     [ObjType_IRQTable] = {
             [IRQTableCmd_Set] = handle_irq_table_set,
             [IRQTableCmd_Delete] = handle_irq_table_delete,
+            [IRQTableCmd_Ack] = handle_irq_table_ack,
         },
     [ObjType_Kernel] = {
         [KernelCmd_Get_core_id]  = monitor_get_core_id,

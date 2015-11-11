@@ -118,9 +118,9 @@ int main(int argc, char *argv[])
     aos_rpc_send_string(&local_rpc, "much longer text");
     debug_printf("Done\n\n");
     
-    debug_printf("Performing small chump test...\n");
-    perform_array_test(SMALL_CHUMP_SIZE, SMALL_CHUMP_ARRAY_SIZE);
-    debug_printf("Done\n\n");
+    // debug_printf("Performing small chump test...\n");
+    // perform_array_test(SMALL_CHUMP_SIZE, SMALL_CHUMP_ARRAY_SIZE);
+    // debug_printf("Done\n\n");
 
     debug_printf("Performing medium chump test...\n");
     perform_array_test(MEDIUM_CHUMP_SIZE, MEDIUM_CHUMP_ARRAY_SIZE);
