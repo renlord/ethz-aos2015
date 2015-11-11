@@ -55,7 +55,6 @@ void recv_handler(void *lc_in)
 
     // Retrieve msg
     errval_t err = lmp_chan_recv(lc, &msg, &remote_cap);
-
     if (err_is_fail(err)) {
         debug_printf("Could not retrieve message: %s.\n",
             err_getstring(err));
@@ -394,13 +393,13 @@ int main(int argc, char *argv[])
     //my_print("mic check, 1!\n");
     //my_read();
 
-    struct thread *input_reader = thread_create((thread_func_t) my_read, NULL);
-    err = thread_detach(input_reader);
-
-    if (err_is_fail(err)) {
-        debug_printf("Failed to detach Input Reading Thread. %s\n", err_getstring(err));
-        err_print_calltrace(err);
-    }
+    // struct thread *input_reader = thread_create((thread_func_t) my_read, NULL);
+    // err = thread_detach(input_reader);
+    //
+    // if (err_is_fail(err)) {
+    //     debug_printf("Failed to detach Input Reading Thread. %s\n", err_getstring(err));
+    //     err_print_calltrace(err);
+    // }
         
     // TODO (milestone 3) STEP 2:
     // get waitset
@@ -440,6 +439,8 @@ int main(int argc, char *argv[])
         printf("Could not register receive handler!\n");
         exit(-1);
     }
+    
+    fst_client = NULL;
     
     debug_printf("Entering dispatch loop\n");
     while(true) {

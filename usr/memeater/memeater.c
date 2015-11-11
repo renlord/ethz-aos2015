@@ -19,8 +19,6 @@
 #define BIG_CHUMP_ARRAY_SIZE (1UL << 3)
 #define BIG_CHUMP_SIZE (1UL << 25)
 
-struct aos_rpc rpc;
-
 static void *my_malloc(size_t size);
 static void *my_malloc(size_t size)
 {
@@ -109,15 +107,15 @@ int main(int argc, char *argv[])
 
     errval_t err;
 
-    err = aos_rpc_init(&rpc);
-    if (err_is_fail(err)){
-        debug_printf("Could not initialize RPC-module\n");
-        err_print_calltrace(err);
-        exit(-1);
-    }
+    // err = aos_rpc_init(&rpc);
+    // if (err_is_fail(err)){
+    //     debug_printf("Could not initialize RPC-module\n");
+    //     err_print_calltrace(err);
+    //     exit(-1);
+    // }
     
     debug_printf("Performing String Test...\n");
-    aos_rpc_send_string(&rpc, "much longer text");
+    aos_rpc_send_string(&local_rpc, "much longer text");
     debug_printf("Done\n\n");
     
     debug_printf("Performing small chump test...\n");
@@ -137,7 +135,7 @@ int main(int argc, char *argv[])
     
     struct capref retcap;
     size_t retlen;
-    err = aos_rpc_get_dev_cap(&rpc, OMAP44XX_MAP_L4_PER_UART3, OMAP44XX_MAP_L4_PER_UART3_SIZE,
+    err = aos_rpc_get_dev_cap(&local_rpc, OMAP44XX_MAP_L4_PER_UART3, OMAP44XX_MAP_L4_PER_UART3_SIZE,
             &retcap, &retlen);
     
     if (err_is_fail(err)) {

@@ -21,6 +21,7 @@
      __typeof__ (b) _b = (b); \
      _a < _b ? _a : _b; })
 
+
 static void recv_handler(void *rpc_void);
 static void recv_handler(void *rpc_void) 
 {

@@ -663,7 +663,6 @@ errval_t paging_region_unmap(struct paging_region *pr, lvaddr_t base, size_t byt
  */
 errval_t paging_alloc(struct paging_state *st, void **buf, size_t bytes)
 {
-    debug_printf("Paging alloc called for addr 0x%08x\n", (lvaddr_t) *buf);
     if(!st){
         debug_printf("arg st is NULL");
         exit(-1);

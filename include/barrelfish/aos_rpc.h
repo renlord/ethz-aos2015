@@ -36,7 +36,7 @@ struct aos_rpc {
     struct capref return_cap; 
     size_t ret_bits;
     char msg_buf[9];
-};
+}local_rpc;
 
 /**
  * \brief send a string over the given channel

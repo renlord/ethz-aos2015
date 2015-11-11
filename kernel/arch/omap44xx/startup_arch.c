@@ -671,7 +671,7 @@ void arm_kernel_startup(void)
         core_local_alloc_start = glbl_core_data->start_free_ram;
         core_local_alloc_end = PHYS_MEMORY_START + ram_size;
 
-#if MILESTONE == 3
+//#if MILESTONE == 3
         // Bring up memory consuming process
         struct spawn_state memeater_st;
         struct dcb *memeater_dcb;
@@ -679,7 +679,7 @@ void arm_kernel_startup(void)
         static struct cte memeater_rootcn; // gets put into mdb
         memeater_dcb = spawn_bsp_init(ADDTITIONAL_MODULE_NAME,
                                       bsp_alloc_phys, &memeater_rootcn, &memeater_st);
-#endif
+//#endif
 
         // Bring up init
         struct spawn_state init_st;
@@ -688,7 +688,7 @@ void arm_kernel_startup(void)
         init_dcb = spawn_bsp_init(BSP_INIT_MODULE_NAME, bsp_alloc_phys,
                                   &init_rootcn, &init_st);
 
-#if MILESTONE == 3
+//#if MILESTONE == 3
         // TODO (milestone 3): create endpoints for domains:
         // 1) selfep for each domain -- retype dcb cap into TASKCN_SLOT_SELFEP
         // DONE
@@ -752,7 +752,7 @@ void arm_kernel_startup(void)
         debug(LOG_NOTE, "Minted Init EP to other domain INIT_EP Slots.\n");
         printk(LOG_NOTE, "EP Capss created and Buffers minted accordingly...\n");
         
-#endif
+//#endif
     } else {
         debug(SUBSYS_STARTUP, "Doing non-BSP related bootup \n");
         init_dcb = NULL;

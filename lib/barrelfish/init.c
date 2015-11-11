@@ -166,6 +166,7 @@ errval_t barrelfish_init_onthread(struct spawn_domain_params *params)
         return SYS_ERR_OK;
     }
 
+    aos_rpc_init(&local_rpc);
     // TODO STEP 3: register ourselves with init
     /* allocate lmp channel structure */
     /* create local endpoint */
