@@ -42,7 +42,7 @@ struct client_state {
     struct client_state *next;
     struct lmp_endpoint *ep;
     size_t alloced;
-    char mailbox[50];
+    char mailbox[500];
     size_t char_count;
 };
 
@@ -159,8 +159,6 @@ void recv_handler(void *lc_in)
             break;
         }
         
-        // Only handles messages that can be contained in a
-        // single pass
         case SEND_TEXT:
         {
             
@@ -258,13 +256,17 @@ void recv_handler(void *lc_in)
                 return;
             }
             
-            //err = devframe_type(&dest, cap_io, cap_io.cnode.size_bits);
-            // allocate a frame for vnode
-            if (err_is_fail(err)) {
-                debug_printf("Could not copy TASKCN_SLOT_IO Capability. %s\n", err);
-                err_print_calltrace(err);
-                return;
-            }
+            // struct capref src = cap_io;
+            // for (uint32_t i = 0; i < 600; i++){
+            //     struct capref copy;
+            //     err = devframe_type(&copy, src, 30);
+            //     if (err_is_fail(err)) {
+            //         debug_printf("Could not copy capref: %s\n", err_getstring(err));
+            //         err_print_calltrace(err);
+            //         return;
+            //     }
+            //     src = copy;
+            // }
 
             err = lmp_chan_send1(lc, LMP_SEND_FLAGS_DEFAULT, cap_io, REQUEST_DEV_CAP);
 
@@ -363,6 +365,12 @@ int main(int argc, char *argv[])
         DEBUG_ERR(err, "Failed to init memory server module");
         abort();
     }
+    
+    int *int_buf = (int *)malloc(1000);
+    for (uint32_t i = 0; i < 1000; i++) {
+        int_buf[i] = 1;
+    }
+    debug_printf("Mem stuff done\n");
 
 
     // TODO (milestone 4): Implement a system to manage the device memory
@@ -373,7 +381,8 @@ int main(int argc, char *argv[])
         
     debug_printf("Allocating cap_io\n");
     void *buf;
-    int flags = VREGION_FLAGS_READ_WRITE | KPI_PAGING_FLAGS_NOCACHE;
+    int flags = VREGION_FLAGS_READ_WRITE_NOCACHE;
+
     err = paging_map_frame_attr(get_current_paging_state(), &buf, (1UL<<30),
                                 cap_io, flags, NULL, NULL);
     debug_printf("Done.\n");
@@ -383,23 +392,23 @@ int main(int argc, char *argv[])
         err_print_calltrace(err);
         abort();
     }
-
-    const uint32_t base_io = 0x40000000;
-    const uint32_t uart3_vaddr =
-        (OMAP44XX_MAP_L4_PER_UART3-base_io)+(lvaddr_t)buf;
-
-    set_uart3_registers(uart3_vaddr);
+    //
+    // const uint32_t base_io = 0x40000000;
+    // const uint32_t uart3_vaddr =
+    //     (OMAP44XX_MAP_L4_PER_UART3-base_io)+(lvaddr_t)buf;
+    //
+    // set_uart3_registers(uart3_vaddr);
 
     //my_print("mic check, 1!\n");
     //my_read();
 
-    struct thread *input_reader = thread_create((thread_func_t) my_read, NULL);
-    err = thread_detach(input_reader);
-
-    if (err_is_fail(err)) {
-        debug_printf("Failed to detach Input Reading Thread. %s\n", err_getstring(err));
-        err_print_calltrace(err);
-    }
+    // struct thread *input_reader = thread_create((thread_func_t) my_read, NULL);
+    // err = thread_detach(input_reader);
+    //
+    // if (err_is_fail(err)) {
+    //     debug_printf("Failed to detach Input Reading Thread. %s\n", err_getstring(err));
+    //     err_print_calltrace(err);
+    // }
         
     // TODO (milestone 3) STEP 2:
     // get waitset

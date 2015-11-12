@@ -48,9 +48,6 @@ typedef int paging_flags_t;
     (VREGION_FLAGS_READ | VREGION_FLAGS_WRITE | VREGION_FLAGS_MPB)
 
 #define ENTRIES_PER_FRAME 32
-#define L1_ENTRIES (ARM_L1_OFFSET(VADDR_OFFSET)>>2)
-#define NO_OF_FRAMES \
-    (L1_ENTRIES*(ARM_L2_MAX_ENTRIES<<2)/ENTRIES_PER_FRAME)
         
 struct node {
     lvaddr_t addr;
@@ -67,10 +64,10 @@ struct paging_state {
     struct node all_nodes[ARM_L1_MAX_ENTRIES*10];
     
     struct capref l1_cap;
-    struct capref l2_caps[L1_ENTRIES];
-    struct capref frame_caps[NO_OF_FRAMES];
-    struct capref *next_frame;
-    struct capref guard_cap;
+    struct capref l2_caps[ARM_L1_USER_ENTRIES];
+    // struct capref frame_caps[NO_OF_FRAMES];
+    // struct capref *next_frame;
+    // struct capref guard_cap;
     struct aos_rpc *rpc;
 };
 

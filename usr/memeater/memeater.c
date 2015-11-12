@@ -13,7 +13,7 @@
 #define SMALL_CHUMP_ARRAY_SIZE (1UL << 10)
 #define SMALL_CHUMP_SIZE (1UL << 2)
 
-#define MEDIUM_CHUMP_ARRAY_SIZE (1UL << 12)
+#define MEDIUM_CHUMP_ARRAY_SIZE (1UL << 10)
 #define MEDIUM_CHUMP_SIZE (1UL << 12)
 
 #define BIG_CHUMP_ARRAY_SIZE (1UL << 3)
@@ -104,23 +104,14 @@ static void perform_array_test(size_t chump_size, uint32_t array_size)
 int main(int argc, char *argv[])
 {
     debug_printf("memeater started\n");
-
-    errval_t err;
-
-    // err = aos_rpc_init(&rpc);
-    // if (err_is_fail(err)){
-    //     debug_printf("Could not initialize RPC-module\n");
-    //     err_print_calltrace(err);
-    //     exit(-1);
-    // }
     
     debug_printf("Performing String Test...\n");
-    aos_rpc_send_string(&local_rpc, "much longer text");
+    aos_rpc_send_string(&local_rpc, " much longer text --  much longer text --  much longer text --  much longer text --  much longer text -- much longer text --  much longer text --  much longer text --  much longer text --  much longer text -- ");
     debug_printf("Done\n\n");
     
-    // debug_printf("Performing small chump test...\n");
-    // perform_array_test(SMALL_CHUMP_SIZE, SMALL_CHUMP_ARRAY_SIZE);
-    // debug_printf("Done\n\n");
+    debug_printf("Performing small chump test...\n");
+    perform_array_test(SMALL_CHUMP_SIZE, SMALL_CHUMP_ARRAY_SIZE);
+    debug_printf("Done\n\n");
 
     debug_printf("Performing medium chump test...\n");
     perform_array_test(MEDIUM_CHUMP_SIZE, MEDIUM_CHUMP_ARRAY_SIZE);
@@ -133,18 +124,19 @@ int main(int argc, char *argv[])
     debug_printf("Getting IO Cap from Init...\n");
     // placeholder paramters that do nothing.
     
-    struct capref retcap;
-    size_t retlen;
-    err = aos_rpc_get_dev_cap(&local_rpc, OMAP44XX_MAP_L4_PER_UART3, OMAP44XX_MAP_L4_PER_UART3_SIZE,
-            &retcap, &retlen);
-    
-    if (err_is_fail(err)) {
-        debug_printf("Failed to get IO Cap from init... %s\n");
-        err_print_calltrace(err);
-        exit(-1);
-    }
-
-    debug_printf("Done\n\n");
+    // errval_t err;
+    // struct capref retcap;
+    // size_t retlen;
+    // err = aos_rpc_get_dev_cap(&local_rpc, OMAP44XX_MAP_L4_PER_UART3, OMAP44XX_MAP_L4_PER_UART3_SIZE,
+    //         &retcap, &retlen);
+    //
+    // if (err_is_fail(err)) {
+    //     debug_printf("Failed to get IO Cap from init... %s\n");
+    //     err_print_calltrace(err);
+    //     exit(-1);
+    // }
+    //
+    // debug_printf("Done\n\n");
         
     return 0;
 }
