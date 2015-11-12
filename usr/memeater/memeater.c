@@ -121,13 +121,15 @@ static void scan_line(char *buf)
     char c = '\0';
     memset(buf, '\0', 256);
     size_t i;
-    for (i = 0; c != 13 && i < 256; i++) {
+    for (i = 0; i < 256; i++) {
         errval_t err = aos_rpc_serial_getchar(&local_rpc, &c);
         if (err_is_fail(err)) {
             debug_printf("userland scan_line fail! %s\n", err_getstring(err));
             err_print_calltrace(err);
             break;
         }
+
+        if (c == 13) break;
         memcpy(&buf[i], &c, 1);
     }
 }
@@ -161,20 +163,21 @@ static void cli_demo(void)
 
     memset(input_buf, '\0', 256);
 
+    print_line("======== BEGIN BASIC SHELL ==========\r\n");
     while (true) {
         scan_line(input_buf);
         parse_cli_cmd(input_buf, argv, &args);
 
         // DEBUGGING
-        debug_printf("arguments:\n");
-        for (i = 0; i < args; i++) {
-            debug_printf("%s\n", argv[i]);
-        }
+        // debug_printf("arguments:\n");
+        // for (i = 0; i < args; i++) {
+        //     debug_printf("%s\n", argv[i]);
+        // }
 
         if (strcmp(argv[0], "echo") == 0) {
 
             if (args < 2) {
-                print_line("CLI DEMO SHELL: Insufficient arguments for echo command!\n");
+                print_line("CLI DEMO SHELL: Insufficient arguments for echo command!\r\n");
                 continue;
             }
 
@@ -184,23 +187,23 @@ static void cli_demo(void)
                 print_line(" ");
             }
             print_line(argv[i]);
-            print_line("\n");
+            print_line("\r\n");
 
         } else if (strcmp(argv[0], "run_memtest") == 0) {
 
             if (args != 2) {
-                print_line("CLI DEMO SHELL: Insufficient arguments for run_memeater command!\n");
+                print_line("CLI DEMO SHELL: Insufficient arguments for run_memeater command!\r\n");
                 continue;
             }
 
-            print_line("CLI DEMO SHELL: run_memtest currently unsupported!\n");
+            print_line("CLI DEMO SHELL: run_memtest currently unsupported!\r");
             // run memeater test;
         } else if (strcmp(argv[0], "exit") == 0) {
-            print_line("CLI DEMO SHELL: exiting shell... goodbye\n");
+            print_line("CLI DEMO SHELL: exiting shell... goodbye\r\n");
+            print_line("======== END BASIC SHELL ========\r\n");
             return;
         } else {
-            debug_printf("argument provided: %s | length of argument: %d\n", argv[0], strlen(argv[0]));
-            print_line("CLI DEMO SHELL: unknown command. try again\n");
+            print_line("CLI DEMO SHELL: unknown command. try again\r\n");
         }
 
         memset(input_buf, '\0', 256);
@@ -242,12 +245,8 @@ int main(int argc, char *argv[])
             err_getstring(err));
         err_print_calltrace(err);
     }
-    err = aos_rpc_serial_putchar(&local_rpc, '\n');
-    if (err_is_fail(err)) {
-        debug_printf("failed to put serial output from memeater... %s\n", 
-            err_getstring(err));
-        err_print_calltrace(err);
-    }
+    aos_rpc_serial_putchar(&local_rpc, '\r');
+    aos_rpc_serial_putchar(&local_rpc, '\n');
     debug_printf("Done\n\n");
 
     debug_printf("Performing Userland printf test...\n");
