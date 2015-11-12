@@ -54,8 +54,8 @@ static void recv_handler(void *rpc_void)
             }
 
             rpc->lc.remote_cap = remote_cap;
+            break;
         }
-        break;
         
         case SEND_TEXT:
         {
@@ -63,8 +63,8 @@ static void recv_handler(void *rpc_void)
             memcpy(rpc->msg_buf, (char*)msg.buf.words[2], buf_size);
             rpc->msg_buf[buf_size] = '\0';
             debug_printf("Received text: %s\n", rpc->msg_buf);
+            break;
         }
-        break;
         
         case REQUEST_FRAME_CAP:
         {
@@ -75,8 +75,8 @@ static void recv_handler(void *rpc_void)
             
             rpc->return_cap = remote_cap;
             rpc->ret_bits = msg.buf.words[1];
+            break;
         }
-        break;
 
         case REQUEST_DEV_CAP:
         {
@@ -87,11 +87,34 @@ static void recv_handler(void *rpc_void)
 
             rpc->return_cap = remote_cap;
             rpc->ret_bits = msg.buf.words[1];
+            break;
         }
-        break;
+
+        case SERIAL_PUT_CHAR:
+        {
+            // Init will never reply to this event!
+            break;
+        }
+
+        case SERIAL_GET_CHAR:
+        {
+            if (msg.buf.msglen != 2){
+                debug_printf("Bad msg for SERIAL_GET_CHAR.\n");
+                rpc->return_cap = NULL_CAP;
+                return;
+            }   
+
+            memcpy(rpc->msg_buf, (char*)msg.buf.words[2], 1);
+            debug_printf("received serial input: %s\n", rpc->msg_buf);
+
+            break;
+        }
 
         default:
-        debug_printf("Wrong rpc code!\n");
+        {
+            debug_printf("Wrong rpc code!\n");
+
+        }
     }
     
     err = lmp_chan_alloc_recv_slot(&rpc->lc);
@@ -238,6 +261,20 @@ errval_t aos_rpc_serial_getchar(struct aos_rpc *chan, char *retc)
 {
     // TODO (milestone 4): implement functionality to request a character from
     // the serial driver.
+    struct lmp_chan lc = chan->lc;
+
+    errval_t err;
+
+    err = lmp_chan_send1(&lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, SERIAL_GET_CHAR);
+
+    if (err_is_fail(err)) {
+        return err;
+    }
+
+    event_dispatch(get_default_waitset());
+
+    *retc = chan->msg_buf[2];
+
     return SYS_ERR_OK;
 }
 
@@ -246,8 +283,15 @@ errval_t aos_rpc_serial_putchar(struct aos_rpc *chan, char c)
 {
     // TODO (milestone 4): implement functionality to send a character to the
     // serial port.
-    
+    struct lmp_chan lc = chan->lc;
 
+    errval_t err;
+    
+    err = lmp_chan_send2(&lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, SERIAL_PUT_CHAR, c);
+
+    if (err_is_fail(err)) {
+        return err;
+    } 
 
     return SYS_ERR_OK;
 }

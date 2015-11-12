@@ -130,21 +130,38 @@ int main(int argc, char *argv[])
     perform_array_test(BIG_CHUMP_SIZE, BIG_CHUMP_ARRAY_SIZE);
     debug_printf("Done\n\n");
 
-    debug_printf("Getting IO Cap from Init...\n");
+    // debug_printf("Getting IO Cap from Init...\n");
     // placeholder paramters that do nothing.
     
-    struct capref retcap;
-    size_t retlen;
-    err = aos_rpc_get_dev_cap(&local_rpc, OMAP44XX_MAP_L4_PER_UART3, OMAP44XX_MAP_L4_PER_UART3_SIZE,
-            &retcap, &retlen);
+    // struct capref retcap;
+    // size_t retlen;
+    // err = aos_rpc_get_dev_cap(&local_rpc, OMAP44XX_MAP_L4_PER_UART3, OMAP44XX_MAP_L4_PER_UART3_SIZE,
+    //         &retcap, &retlen);
     
-    if (err_is_fail(err)) {
-        debug_printf("Failed to get IO Cap from init... %s\n");
-        err_print_calltrace(err);
-        exit(-1);
-    }
+    // if (err_is_fail(err)) {
+    //     debug_printf("Failed to get IO Cap from init... %s\n");
+    //     err_print_calltrace(err);
+    //     exit(-1);
+    // }
 
+    debug_printf("Try to get Serial Input from init...\n");
+    char c;
+    err = aos_rpc_serial_getchar(&local_rpc, &c);
+    if (err_is_fail(err)) {
+        debug_printf("failed to get serial input from init... %s\n", 
+            err_getstring(err));
+        err_print_calltrace(err);
+    }
+    debug_printf("got this character from init ----> %c\n", c);
     debug_printf("Done\n\n");
-        
+
+    debug_printf("Try to produce serial output from memeater...\n");
+    err = aos_rpc_serial_putchar(&local_rpc, 'F');
+    if (err_is_fail(err)) {
+        debug_printf("failed to put serial output from memeater... %s\n", 
+            err_getstring(err));
+        err_print_calltrace(err);
+    }
+    debug_printf("Done\n\n");
     return 0;
 }

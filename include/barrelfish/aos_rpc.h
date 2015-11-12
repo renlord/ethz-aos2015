@@ -26,9 +26,18 @@ enum rpc_code {
     REQUEST_CHAN,
     SEND_TEXT,
     REQUEST_FRAME_CAP,
-    REQUEST_DEV_CAP
+    REQUEST_DEV_CAP,
+    SERIAL_PUT_CHAR,
+    SERIAL_GET_CHAR
 };
 
+enum lock_code {
+    LOCK_OK,
+    LOCK_BUSY,
+    LOCK_RELEASE,
+    LOCK_REQUEST
+};
+  
 typedef uint32_t my_pid_t;
 
 struct aos_rpc {

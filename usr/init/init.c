@@ -44,7 +44,42 @@ struct client_state {
     size_t alloced;
     char mailbox[50];
     size_t char_count;
+    char read_buf[256];
 };
+
+struct serial_write_lock {
+    bool lock;
+    struct client_state *cli;
+};
+
+struct serial_read_lock {
+    bool lock;
+    struct client_state *cli;
+};
+
+static struct serial_write_lock write_lock;
+static struct serial_read_lock read_lock;
+
+
+errval_t serial_put_char(const char *c);
+errval_t serial_put_char(const char *c) 
+{
+    assert(uart3_lsr && uart3_thr);
+    while(*uart3_lsr == 0x20);
+    *uart3_thr = *c;
+
+    return SYS_ERR_OK;
+}
+
+errval_t serial_get_char(char *c);
+errval_t serial_get_char(char *c) 
+{
+    *((uint8_t *) uart3_rhr) = 0;
+    while((*uart3_lsr & 1) == 0);
+    memcpy(c, (char *) uart3_rhr, 1);
+
+    return SYS_ERR_OK;
+}
 
 void recv_handler(void *lc_in);
 void recv_handler(void *lc_in)
@@ -166,7 +201,8 @@ void recv_handler(void *lc_in)
             
             struct client_state *cs = fst_client;
             if(cs == NULL) {
-                debug_printf("Frame cap requested but no clients registered yet.\n");
+                debug_printf("Frame cap requested but no clients registered"
+                    "yet.\n");
                 return;
             }
             
@@ -211,7 +247,8 @@ void recv_handler(void *lc_in)
             
             struct client_state *cs = fst_client;
             if(cs == NULL) {
-                debug_printf("Frame cap requested but no clients registered yet.\n");
+                debug_printf("Frame cap requested but no clients registered"
+                    "yet.\n");
                 return;
             }
             
@@ -257,21 +294,52 @@ void recv_handler(void *lc_in)
                 debug_printf("Received endpoint cap was null.\n");
                 return;
             }
-            
-            //err = devframe_type(&dest, cap_io, cap_io.cnode.size_bits);
-            // allocate a frame for vnode
-            if (err_is_fail(err)) {
-                debug_printf("Could not copy TASKCN_SLOT_IO Capability. %s\n", err);
-                err_print_calltrace(err);
-                return;
-            }
 
-            err = lmp_chan_send1(lc, LMP_SEND_FLAGS_DEFAULT, cap_io, REQUEST_DEV_CAP);
+            err = lmp_chan_send1(lc, LMP_SEND_FLAGS_DEFAULT, cap_io, 
+                REQUEST_DEV_CAP);
 
             if (err_is_fail(err)) {
                 debug_printf("failed to send copy of cap io. %s\n", err);
                 err_push(err, LIB_ERR_LMP_CHAN_SEND);
                 return;
+            }
+
+            break;
+        }
+
+        case SERIAL_PUT_CHAR:
+        {
+            if (capref_is_null(remote_cap)) {
+                debug_printf("Received endpoint cap was null.\n");
+                return;
+            }
+
+            if (msg.buf.msglen != 2) {
+                debug_printf("invalid message size for serial put char!");
+                return;
+            }
+
+            serial_put_char((char *)msg.buf.words[2]);
+
+            break;
+        }
+
+        case SERIAL_GET_CHAR:
+        {
+            if (capref_is_null(remote_cap)) {
+                debug_printf("Received endpoint cap was null.\n");
+                return;
+            }
+
+            char c;
+            serial_get_char(&c);
+            err = lmp_chan_send2(lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
+                SERIAL_GET_CHAR, c);
+
+            if (err_is_fail(err)) {
+                debug_printf("Failed to send serial get char. %s\n", 
+                    err_getstring(err));
+                err_print_calltrace(err);
             }
 
             break;
@@ -364,7 +432,6 @@ int main(int argc, char *argv[])
         abort();
     }
 
-
     // TODO (milestone 4): Implement a system to manage the device memory
     // that's referenced by the capability in TASKCN_SLOT_IO in the task
     // cnode. Additionally, export the functionality of that system to other
@@ -385,10 +452,14 @@ int main(int argc, char *argv[])
     }
     
     const uint32_t base_io = 0x40000000;
-    const uint32_t uart3_vaddr =
-        (OMAP44XX_MAP_L4_PER_UART3-base_io)+(lvaddr_t)buf;
+    const uint32_t uart3_vaddr = (OMAP44XX_MAP_L4_PER_UART3 - base_io) + 
+        (lvaddr_t)buf;
 
     set_uart3_registers(uart3_vaddr);
+   
+    read_lock.lock = false;
+    write_lock.lock = false;
+    debug_printf("Initialized read, write locks for serial drivers\n");
     
     //my_print("mic check, 1!\n");
     //my_read();
