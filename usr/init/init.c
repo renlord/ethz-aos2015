@@ -464,7 +464,8 @@ int main(int argc, char *argv[])
     // err = thread_detach(input_reader);
 
     if (err_is_fail(err)) {
-        debug_printf("Failed to detach Input Reading Thread. %s\n", err_getstring(err));
+        debug_printf("Failed to detach Input Reading Thread. %s\n", 
+            err_getstring(err));
         err_print_calltrace(err);
     }
         

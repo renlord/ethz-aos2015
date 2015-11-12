@@ -192,12 +192,18 @@ static void cli_demo(void)
         } else if (strcmp(argv[0], "run_memtest") == 0) {
 
             if (args != 2) {
-                print_line("CLI DEMO SHELL: Insufficient arguments for run_memeater command!\r\n");
+                print_line("CLI DEMO SHELL: Insufficient argument size for run_memeater command!\r\n");
                 continue;
             }
 
-            print_line("CLI DEMO SHELL: run_memtest currently unsupported!\r");
+            print_line("CLI DEMO_SHELL: Running Small Chump Memory Test...\r\n");
+            perform_array_test(SMALL_CHUMP_SIZE, atoi(argv[1]));
+            print_line("CLI DEMO SHELL: Memory Test Completed.\r\n");
             // run memeater test;
+            // debug_printf("Performing small chump test...\n");
+            // perform_array_test(SMALL_CHUMP_SIZE, SMALL_CHUMP_ARRAY_SIZE);
+            // debug_printf("Done\n\n");
+
         } else if (strcmp(argv[0], "exit") == 0) {
             print_line("CLI DEMO SHELL: exiting shell... goodbye\r\n");
             print_line("======== END BASIC SHELL ========\r\n");
