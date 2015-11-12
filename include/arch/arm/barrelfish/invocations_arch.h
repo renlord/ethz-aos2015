@@ -436,6 +436,15 @@ static inline errval_t invoke_irqtable_delete(struct capref irqcap, int irq)
                     invoke_cptr, irq).error;
 }
 
+static inline errval_t invoke_irqtable_ack(struct capref irqcap, int irq)
+{
+    uint8_t invoke_bits = get_cap_valid_bits(irqcap);
+    capaddr_t invoke_cptr = get_cap_addr(irqcap) >> (CPTR_BITS - invoke_bits);
+
+    return syscall3((invoke_bits << 16) | (IRQTableCmd_Ack << 8) | SYSCALL_INVOKE,
+                    invoke_cptr, irq).error;
+}
+
 static inline errval_t invoke_kernel_get_core_id(struct capref kern_cap,
                                                  coreid_t *core_id)
 {

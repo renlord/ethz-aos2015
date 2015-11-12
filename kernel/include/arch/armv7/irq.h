@@ -17,5 +17,6 @@ struct idc_recv_msg;
 errval_t irq_table_set(unsigned int nidt, capaddr_t endpoint);
 errval_t irq_table_delete(unsigned int nidt);
 void send_user_interrupt(int irq);
+void user_ack_interrupt(int irq);
 
 #endif // KERNEL_ARCH_ARM_IRQ_H

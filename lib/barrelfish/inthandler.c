@@ -19,15 +19,7 @@
 /* allocate inrq */
 static errval_t arm_allocirq(struct capref ep, uint32_t irq)
 {
-    errval_t err, msgerr;
-
-    struct monitor_blocking_rpc_client *r = get_monitor_blocking_rpc_client();
-    err = r->vtbl.arm_irq_handle(r, ep, irq, &msgerr);
-    if (err_is_fail(err)){
-        return err;
-    } else {
-        return msgerr;
-    }
+    return invoke_irqtable_set(cap_irq, irq, ep);
 }
 
 /* Allocate vector from local monitor */

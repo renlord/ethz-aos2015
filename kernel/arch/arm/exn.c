@@ -271,6 +271,7 @@ void fatal_kernel_fault(uint32_t evector, lvaddr_t address, arch_registers_state
     }
 }
 
+static bool irq_in_flight[256] = { 0 };// XXX: this is a hack
 void handle_irq(arch_registers_state_t* save_area, uintptr_t fault_pc)
 {
     uint32_t irq = 0;
@@ -281,12 +282,16 @@ void handle_irq(arch_registers_state_t* save_area, uintptr_t fault_pc)
     irq = pic_get_active_irq();
 #endif
 
-    debug(SUBSYS_DISPATCH, "IRQ %"PRIu32" while %s\n", irq,
-          dcb_current ? (dcb_current->disabled ? "disabled": "enabled") : "in kernel");
+    debug(SUBSYS_DISPATCH, "IRQ %"PRIu32" while %s%s\n", irq,
+          dcb_current ? (dcb_current->disabled ? "disabled": "enabled") : "in kernel",
+          irq_in_flight[irq] ? " (user handler running)" : "");
 
-/*    printk(LOG_NOTE, "IRQ %"PRIu32" while %s\n", irq,
-          dcb_current ? (dcb_current->disabled ? "disabled": "enabled") : "in kernel");
-*/
+    if (irq_in_flight[irq]) {
+        // don't do anything if user interrupt handler for this currently
+        // running
+        dispatch(schedule());
+    }
+
     if (dcb_current != NULL) {
         dispatcher_handle_t handle = dcb_current->disp;
         if (save_area == dispatcher_get_disabled_save_area(handle)) {
@@ -324,9 +329,18 @@ void handle_irq(arch_registers_state_t* save_area, uintptr_t fault_pc)
     	dispatch(schedule());
     }
     else {
-        gic_ack_irq(irq);
+        // we'll ack that when the user says so
+        //gic_ack_irq(irq);
+        irq_in_flight[irq] = true;
         send_user_interrupt(irq);
+        // if we get here we couldn't deliver the interrupt
         panic("Unhandled IRQ %"PRIu32"\n", irq);
     }
+}
 
+void user_ack_interrupt(int irq)
+{
+//    printk(LOG_NOTE, "ack'd irq %d\n", irq);
+    gic_ack_irq(irq);
+    irq_in_flight[irq]=false;
 }

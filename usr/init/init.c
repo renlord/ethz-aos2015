@@ -455,27 +455,22 @@ int main(int argc, char *argv[])
         err_print_calltrace(err);
         abort();
     }
-    
+
     const uint32_t base_io = 0x40000000;
     const uint32_t uart3_vaddr = (OMAP44XX_MAP_L4_PER_UART3 - base_io) + 
         (lvaddr_t)buf;
 
     set_uart3_registers(uart3_vaddr);
-   
-    read_lock.lock = false;
-    write_lock.lock = false;
-    debug_printf("Initialized read, write locks for serial drivers\n");
-    
     //my_print("mic check, 1!\n");
     //my_read();
 
-    // struct thread *input_reader = thread_create((thread_func_t) my_read, NULL);
-    // err = thread_detach(input_reader);
-    //
-    // if (err_is_fail(err)) {
-    //     debug_printf("Failed to detach Input Reading Thread. %s\n", err_getstring(err));
-    //     err_print_calltrace(err);
-    // }
+    struct thread *input_reader = thread_create((thread_func_t) my_read, NULL);
+    err = thread_detach(input_reader);
+
+    if (err_is_fail(err)) {
+        debug_printf("Failed to detach Input Reading Thread. %s\n", err_getstring(err));
+        err_print_calltrace(err);
+    }
         
     // TODO (milestone 3) STEP 2:
     // get waitset

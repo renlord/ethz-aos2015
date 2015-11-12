@@ -215,7 +215,8 @@ enum frame_cmd {
  */
 enum irqtable_cmd {
     IRQTableCmd_Set,    ///< Set endpoint for IRQ# notifications
-    IRQTableCmd_Delete  ///< Remove notification endpoint for IRQ#
+    IRQTableCmd_Delete, ///< Remove notification endpoint for IRQ#
+    IRQTableCmd_Ack,    ///< acknowledge IRQ# from user space
 };
 
 /**
