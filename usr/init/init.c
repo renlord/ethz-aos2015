@@ -56,8 +56,8 @@ struct serial_read_lock {
     struct client_state *cli;
 };
 
-static struct serial_write_lock write_lock;
-static struct serial_read_lock read_lock;
+//static struct serial_write_lock write_lock;
+//static struct serial_read_lock read_lock;
 
 
 errval_t serial_put_char(const char *c);
@@ -67,7 +67,6 @@ errval_t serial_put_char(const char *c)
     assert(uart3_lsr && uart3_thr);
     while(*uart3_lsr == 0x20);
     *uart3_thr = *c;
-    printf("\n");
 
     return SYS_ERR_OK;
 }
@@ -75,13 +74,11 @@ errval_t serial_put_char(const char *c)
 errval_t serial_get_char(char *c);
 errval_t serial_get_char(char *c) 
 {
-    debug_printf("INPUT NOW!!! \n\n");
     *uart3_fcr &= ~1; // write 0 to bit 0
-    *((uint8_t *) uart3_rhr) = 0;
+    *uart3_rhr = 0;
     while((*uart3_lsr & 1) == 0);
     memcpy(c, (char *) uart3_rhr, 1);
-
-    debug_printf("Got Character ------> %c\n", *c);
+    serial_put_char((char *) uart3_rhr);
     return SYS_ERR_OK;
 }
 
@@ -337,7 +334,6 @@ void recv_handler(void *lc_in)
 
             char c;
             serial_get_char(&c);
-            debug_printf("got character ----> %c\n", c);
             err = lmp_chan_send2(lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
                 SERIAL_GET_CHAR, c);
 
@@ -464,8 +460,8 @@ int main(int argc, char *argv[])
     //my_print("mic check, 1!\n");
     //my_read();
 
-    struct thread *input_reader = thread_create((thread_func_t) my_read, NULL);
-    err = thread_detach(input_reader);
+    // struct thread *input_reader = thread_create((thread_func_t) my_read, NULL);
+    // err = thread_detach(input_reader);
 
     if (err_is_fail(err)) {
         debug_printf("Failed to detach Input Reading Thread. %s\n", err_getstring(err));

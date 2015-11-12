@@ -106,7 +106,6 @@ static void recv_handler(void *rpc_void)
 
             //memcpy(rpc->msg_buf, (char*)msg.buf.words[1], 1);
             //rpc->msg_buf[1] = '\0';
-            debug_printf("AOS RPC received serial input -----> %c\n", msg.buf.words[1]);
             memcpy(&rpc->msg_buf, (char *) &msg.buf.words[1], 1);
 
             break;
@@ -299,6 +298,8 @@ errval_t aos_rpc_serial_putchar(struct aos_rpc *chan, char c)
     if (err_is_fail(err)) {
         return err;
     } 
+
+    
 
     return SYS_ERR_OK;
 }

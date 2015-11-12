@@ -111,7 +111,99 @@ static void print_line(const char *str)
             debug_printf("userland printf fail! %s\n", err_getstring(err));
             err_print_calltrace(err);
             break;
+        }   
+    }
+}
+
+static void scan_line(char *buf);
+static void scan_line(char *buf) 
+{   
+    char c = '\0';
+    memset(buf, '\0', 256);
+    size_t i;
+    for (i = 0; c != 13 && i < 256; i++) {
+        errval_t err = aos_rpc_serial_getchar(&local_rpc, &c);
+        if (err_is_fail(err)) {
+            debug_printf("userland scan_line fail! %s\n", err_getstring(err));
+            err_print_calltrace(err);
+            break;
         }
+        memcpy(&buf[i], &c, 1);
+    }
+}
+
+static void parse_cli_cmd(char *str, char **argv, int *args);
+static void parse_cli_cmd(char *str, char **argv, int *args)
+{
+    char *tok; 
+    int i;
+    const char *delim = " ";
+
+    tok = strtok(str, delim);
+    
+    if (tok != NULL) {
+        argv[0] = tok; 
+    }
+
+    for (i = 1; (tok = strtok(NULL, delim)) != NULL; i++) {
+        argv[i] = tok;
+    }
+
+    *args = i;
+}
+
+static void cli_demo(void);
+static void cli_demo(void) 
+{
+    char input_buf[256];
+    char *argv[256];
+    int args, i;
+
+    memset(input_buf, '\0', 256);
+
+    while (true) {
+        scan_line(input_buf);
+        parse_cli_cmd(input_buf, argv, &args);
+
+        // DEBUGGING
+        debug_printf("arguments:\n");
+        for (i = 0; i < args; i++) {
+            debug_printf("%s\n", argv[i]);
+        }
+
+        if (strcmp(argv[0], "echo") == 0) {
+
+            if (args < 2) {
+                print_line("CLI DEMO SHELL: Insufficient arguments for echo command!\n");
+                continue;
+            }
+
+            print_line("CLI DEMO SHELL: ");
+            for (i = 1; i < args-1; i++) {
+                print_line(argv[i]);
+                print_line(" ");
+            }
+            print_line(argv[i]);
+            print_line("\n");
+
+        } else if (strcmp(argv[0], "run_memtest") == 0) {
+
+            if (args != 2) {
+                print_line("CLI DEMO SHELL: Insufficient arguments for run_memeater command!\n");
+                continue;
+            }
+
+            print_line("CLI DEMO SHELL: run_memtest currently unsupported!\n");
+            // run memeater test;
+        } else if (strcmp(argv[0], "exit") == 0) {
+            print_line("CLI DEMO SHELL: exiting shell... goodbye\n");
+            return;
+        } else {
+            debug_printf("argument provided: %s | length of argument: %d\n", argv[0], strlen(argv[0]));
+            print_line("CLI DEMO SHELL: unknown command. try again\n");
+        }
+
+        memset(input_buf, '\0', 256);
     }
 }
 
@@ -131,7 +223,6 @@ int main(int argc, char *argv[])
     debug_printf("Performing String Test...\n");
     aos_rpc_send_string(&local_rpc, "much longer text");
     debug_printf("Done\n\n");
-<<<<<<< HEAD
 
     debug_printf("Try to get Serial Input from init...\n");
     char c;
@@ -151,12 +242,29 @@ int main(int argc, char *argv[])
             err_getstring(err));
         err_print_calltrace(err);
     }
+    err = aos_rpc_serial_putchar(&local_rpc, '\n');
+    if (err_is_fail(err)) {
+        debug_printf("failed to put serial output from memeater... %s\n", 
+            err_getstring(err));
+        err_print_calltrace(err);
+    }
     debug_printf("Done\n\n");
 
     debug_printf("Performing Userland printf test...\n");
     print_line("hello world\n");
     debug_printf("Done\n\n");
+
+    debug_printf("Performing Userland scanf test...\n");
+    char buf[256];
+    debug_printf("Type something here now: \n\n");
+    scan_line(buf);
+    debug_printf("scanned line was -----> %s\n", buf);
+    debug_printf("Done\n\n");
     
+    debug_printf("Running Command Line Interface Demo...\n");
+    cli_demo();
+    debug_printf("Done\n\n");
+
     // debug_printf("Performing small chump test...\n");
     // perform_array_test(SMALL_CHUMP_SIZE, SMALL_CHUMP_ARRAY_SIZE);
     // debug_printf("Done\n\n");
