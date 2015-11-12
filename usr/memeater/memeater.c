@@ -131,6 +131,7 @@ int main(int argc, char *argv[])
     debug_printf("Performing String Test...\n");
     aos_rpc_send_string(&local_rpc, "much longer text");
     debug_printf("Done\n\n");
+<<<<<<< HEAD
 
     debug_printf("Try to get Serial Input from init...\n");
     char c;
