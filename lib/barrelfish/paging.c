@@ -391,7 +391,7 @@ static errval_t allocate_pt(struct paging_state *st, lvaddr_t addr,
     return err;
 }
 
-errval_t paging_map_device(struct paging_state *st, lvaddr_t addr,
+errval_t paging_map_user_device(struct paging_state *st, lvaddr_t addr,
                             struct capref frame_cap, uint64_t start_offset, 
                             size_t length, int flags) 
 {
@@ -428,7 +428,7 @@ errval_t paging_map_device(struct paging_state *st, lvaddr_t addr,
         uint64_t l2_entries = ROUND_UP(pages, ENTRIES_PER_FRAME);
         l2_entries = MIN(l2_entries, (ARM_L2_MAX_ENTRIES << 2) - l2_slot);
 
-        err = vnode_map(*l2_cap, cap_io, ROUND_DOWN(l2_slot, ENTRIES_PER_FRAME), flags, 
+        err = vnode_map(*l2_cap, frame_cap, ROUND_DOWN(l2_slot, ENTRIES_PER_FRAME), flags, 
                 cap_offset, l2_entries);
 
         if (err_is_fail(err)) {
