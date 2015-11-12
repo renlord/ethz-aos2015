@@ -44,7 +44,6 @@ struct client_state {
     size_t alloced;
     char mailbox[50];
     size_t char_count;
-    char read_buf[256];
 };
 
 struct serial_write_lock {
@@ -64,9 +63,11 @@ static struct serial_read_lock read_lock;
 errval_t serial_put_char(const char *c);
 errval_t serial_put_char(const char *c) 
 {
+    //debug_printf("serial put char ----> %c\n\n", *c);
     assert(uart3_lsr && uart3_thr);
     while(*uart3_lsr == 0x20);
     *uart3_thr = *c;
+    printf("\n");
 
     return SYS_ERR_OK;
 }
@@ -74,10 +75,13 @@ errval_t serial_put_char(const char *c)
 errval_t serial_get_char(char *c);
 errval_t serial_get_char(char *c) 
 {
+    debug_printf("INPUT NOW!!! \n\n");
+    *uart3_fcr &= ~1; // write 0 to bit 0
     *((uint8_t *) uart3_rhr) = 0;
     while((*uart3_lsr & 1) == 0);
     memcpy(c, (char *) uart3_rhr, 1);
 
+    debug_printf("Got Character ------> %c\n", *c);
     return SYS_ERR_OK;
 }
 
@@ -198,7 +202,6 @@ void recv_handler(void *lc_in)
         // single pass
         case SEND_TEXT:
         {
-            
             struct client_state *cs = fst_client;
             if(cs == NULL) {
                 debug_printf("Frame cap requested but no clients registered"
@@ -309,30 +312,32 @@ void recv_handler(void *lc_in)
 
         case SERIAL_PUT_CHAR:
         {
-            if (capref_is_null(remote_cap)) {
-                debug_printf("Received endpoint cap was null.\n");
-                return;
-            }
+            // if (capref_is_null(remote_cap)) {
+            //     debug_printf("Received endpoint cap was null.\n");
+            //     return;
+            // }
 
             if (msg.buf.msglen != 2) {
                 debug_printf("invalid message size for serial put char!");
                 return;
             }
 
-            serial_put_char((char *)msg.buf.words[2]);
+            //debug_printf("putting char ----> %c\n", msg.buf.words[1]);
+            serial_put_char((char *) &msg.buf.words[1]);
 
             break;
         }
 
         case SERIAL_GET_CHAR:
         {
-            if (capref_is_null(remote_cap)) {
-                debug_printf("Received endpoint cap was null.\n");
-                return;
-            }
+            // if (capref_is_null(remote_cap)) {
+            //     debug_printf("Received endpoint cap was null.\n");
+            //     return;
+            // }
 
             char c;
             serial_get_char(&c);
+            debug_printf("got character ----> %c\n", c);
             err = lmp_chan_send2(lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
                 SERIAL_GET_CHAR, c);
 

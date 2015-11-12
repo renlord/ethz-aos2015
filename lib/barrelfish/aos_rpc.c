@@ -104,8 +104,10 @@ static void recv_handler(void *rpc_void)
                 return;
             }   
 
-            memcpy(rpc->msg_buf, (char*)msg.buf.words[2], 1);
-            debug_printf("received serial input: %s\n", rpc->msg_buf);
+            //memcpy(rpc->msg_buf, (char*)msg.buf.words[1], 1);
+            //rpc->msg_buf[1] = '\0';
+            debug_printf("AOS RPC received serial input -----> %c\n", msg.buf.words[1]);
+            memcpy(&rpc->msg_buf, (char *) &msg.buf.words[1], 1);
 
             break;
         }
@@ -268,12 +270,17 @@ errval_t aos_rpc_serial_getchar(struct aos_rpc *chan, char *retc)
     err = lmp_chan_send1(&lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, SERIAL_GET_CHAR);
 
     if (err_is_fail(err)) {
+        debug_printf("failed to get serial input from init. %s\n", 
+            err_getstring(err));
+        err_print_calltrace(err);
         return err;
     }
 
+    // listen for response from init. When recv_handler returns,
+    // character should be in chan->msg_buf[2]
     event_dispatch(get_default_waitset());
 
-    *retc = chan->msg_buf[2];
+    *retc = chan->msg_buf[0];
 
     return SYS_ERR_OK;
 }
