@@ -13,7 +13,7 @@
 #define SMALL_CHUMP_ARRAY_SIZE (1UL << 10)
 #define SMALL_CHUMP_SIZE (1UL << 2)
 
-#define MEDIUM_CHUMP_ARRAY_SIZE (1UL << 12)
+#define MEDIUM_CHUMP_ARRAY_SIZE (1UL << 10)
 #define MEDIUM_CHUMP_SIZE (1UL << 12)
 
 #define BIG_CHUMP_ARRAY_SIZE (1UL << 3)
@@ -229,8 +229,9 @@ int main(int argc, char *argv[])
     //     exit(-1);
     // }
 
+    
     debug_printf("Performing String Test...\n");
-    aos_rpc_send_string(&local_rpc, "much longer text");
+    aos_rpc_send_string(&local_rpc, " much longer text --  much longer text --  much longer text --  much longer text --  much longer text -- much longer text --  much longer text --  much longer text --  much longer text --  much longer text -- ");
     debug_printf("Done\n\n");
 
     // debug_printf("Try to get Serial Input from init...\n");
@@ -268,12 +269,18 @@ int main(int argc, char *argv[])
 
     debug_printf("Getting IO Cap from Init...\n");
     
-    struct capref retcap;
-    size_t retlen;
+    //struct capref retcap;
+    //size_t retlen;
     // TODO: fix me
     // err = aos_rpc_get_dev_cap(&local_rpc, OMAP44XX_MAP_L4_PER_UART3, 
     //     OMAP44XX_MAP_L4_PER_UART3_SIZE, &retcap, &retlen);
     
+    // errval_t err;
+    // struct capref retcap;
+    // size_t retlen;
+    // err = aos_rpc_get_dev_cap(&local_rpc, OMAP44XX_MAP_L4_PER_UART3, OMAP44XX_MAP_L4_PER_UART3_SIZE,
+    //         &retcap, &retlen);
+    //
     // if (err_is_fail(err)) {
     //     debug_printf("Failed to get IO Cap from init... %s\n");
     //     err_print_calltrace(err);
@@ -296,5 +303,8 @@ int main(int argc, char *argv[])
     // perform_array_test(BIG_CHUMP_SIZE, BIG_CHUMP_ARRAY_SIZE);
     // debug_printf("Done\n\n");
 
+    //
+    // debug_printf("Done\n\n");
+        
     return 0;
 }
