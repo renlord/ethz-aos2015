@@ -216,13 +216,6 @@ int main(int argc, char *argv[])
 
     errval_t err;
 
-    // err = aos_rpc_init(&rpc);
-    // if (err_is_fail(err)){
-    //     debug_printf("Could not initialize RPC-module\n");
-    //     err_print_calltrace(err);
-    //     exit(-1);
-    // }
-
     debug_printf("Performing String Test...\n");
     aos_rpc_send_string(&local_rpc, "much longer text");
     debug_printf("Done\n\n");
@@ -260,13 +253,13 @@ int main(int argc, char *argv[])
     debug_printf("scanned line was -----> %s\n", buf);
     debug_printf("Done\n\n");
     
-    debug_printf("Running Command Line Interface Demo...\n");
+    debug_printf("      ning Command Line Interface Demo...\n");
     cli_demo();
     debug_printf("Done\n\n");
 
-    // debug_printf("Performing small chump test...\n");
-    // perform_array_test(SMALL_CHUMP_SIZE, SMALL_CHUMP_ARRAY_SIZE);
-    // debug_printf("Done\n\n");
+    debug_printf("Performing small chump test...\n");
+    perform_array_test(SMALL_CHUMP_SIZE, SMALL_CHUMP_ARRAY_SIZE);
+    debug_printf("Done\n\n");
 
     debug_printf("Performing medium chump test...\n");
     perform_array_test(MEDIUM_CHUMP_SIZE, MEDIUM_CHUMP_ARRAY_SIZE);
@@ -275,6 +268,7 @@ int main(int argc, char *argv[])
     debug_printf("Performing big chump test...\n");
     perform_array_test(BIG_CHUMP_SIZE, BIG_CHUMP_ARRAY_SIZE);
     debug_printf("Done\n\n");
+
 
     // debug_printf("Getting IO Cap from Init...\n");
     // placeholder paramters that do nothing.
