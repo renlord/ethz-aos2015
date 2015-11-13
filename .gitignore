@@ -32,7 +32,7 @@
 *.dSYM/
 
 # Working Environment Specific Files
-tags
+tags*
 .tags
 tmtags
 bin/*

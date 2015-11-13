@@ -443,82 +443,93 @@ int main(int argc, char *argv[])
         abort();
     }
     
-    int *int_buf = (int *)malloc(1000);
-    for (uint32_t i = 0; i < 1000; i++) {
-        int_buf[i] = 1;
-    }
-    debug_printf("Mem stuff done\n");
+    // int *int_buf = (int *)malloc(1000);
+    // for (uint32_t i = 0; i < 1000; i++) {
+    //     int_buf[i] = 1;
+    // }
+    // debug_printf("Mem stuff done\n");
 
     // TODO (milestone 4): Implement a system to manage the device memory
     // that's referenced by the capability in TASKCN_SLOT_IO in the task
     // cnode. Additionally, export the functionality of that system to other
     // domains by implementing the rpc call `aos_rpc_get_dev_cap()'.
-    debug_printf("Initialized dev memory management\n");
+    // debug_printf("Initialized dev memory management\n");
         
-    debug_printf("Allocating cap_io\n");
+    // debug_printf("Allocating cap_io\n");
 
     
-    size_t offset = OMAP44XX_MAP_L4_PER_UART3 - 0x40000000;
-    lvaddr_t uart_addr = 1UL << 30;
-    err = paging_map_user_device(get_current_paging_state(), uart_addr,
-                            cap_io, offset, OMAP44XX_MAP_L4_PER_UART3_SIZE,
-                            VREGION_FLAGS_READ_WRITE_NOCACHE);
+    // size_t offset = OMAP44XX_MAP_L4_PER_UART3 - 0x40000000;
+    // lvaddr_t uart_addr = 1UL << 30;
+    // err = paging_map_user_device(get_current_paging_state(), uart_addr,
+    //                         cap_io, offset, OMAP44XX_MAP_L4_PER_UART3_SIZE,
+    //                         VREGION_FLAGS_READ_WRITE_NOCACHE);
     
-    debug_printf("Done.\n");
+    // debug_printf("Done.\n");
 
-    if (err_is_fail(err)) {
-        debug_printf("Could not map io cap: %s\n", err_getstring(err));
-        err_print_calltrace(err);
-        abort();
-    }
+    // if (err_is_fail(err)) {
+    //     debug_printf("Could not map io cap: %s\n", err_getstring(err));
+    //     err_print_calltrace(err);
+    //     abort();
+    // }
 
-    set_uart3_registers(uart_addr);
+    /* LEGACY MILESTONE 3 CODE */
 
-    if (err_is_fail(err)) {
-        debug_printf("Failed to detach Input Reading Thread. %s\n", err_getstring(err));
-        err_print_calltrace(err);
-    }
+    // set_uart3_registers(uart_addr);
         
     // TODO (milestone 3) STEP 2:
     // get waitset
-    struct waitset *ws = get_default_waitset();
-    waitset_init(ws);
+    // struct waitset *ws = get_default_waitset();
+    // waitset_init(ws);
     
     // allocate lmp chan
-    struct lmp_chan lc;
+    // struct lmp_chan lc;
 
-    // initialize lmp chan
-    lmp_chan_init(&lc);
+    // // initialize lmp chan
+    // lmp_chan_init(&lc);
    
-    /* make local endpoint available -- this was minted in the kernel in a way
-     * such that the buffer is directly after the dispatcher struct and the
-     * buffer length corresponds DEFAULT_LMP_BUF_WORDS (excluding the kernel 
-     * sentinel word).
-     */
+    // /* make local endpoint available -- this was minted in the kernel in a way
+    //  * such that the buffer is directly after the dispatcher struct and the
+    //  * buffer length corresponds DEFAULT_LMP_BUF_WORDS (excluding the kernel 
+    //  * sentinel word).
+    //  */
     
-    fst_client = (struct client_state *) malloc(sizeof(struct client_state));
+    // fst_client = (struct client_state *) malloc(sizeof(struct client_state));
 
-    struct lmp_endpoint *my_ep;
-    lmp_endpoint_setup(0, FIRSTEP_BUFLEN, &my_ep);
+    // struct lmp_endpoint *my_ep;
+    // lmp_endpoint_setup(0, FIRSTEP_BUFLEN, &my_ep);
     
-    lc.endpoint = my_ep;
-    lc.local_cap = cap_selfep;
+    // lc.endpoint = my_ep;
+    // lc.local_cap = cap_selfep;
     
-    // allocate slot for incoming capability from memeater
-    err = lmp_chan_alloc_recv_slot(&lc);
-    if (err_is_fail(err)){
-        printf("Could not allocate receive slot!\n");
-        exit(-1);
+    // // allocate slot for incoming capability from memeater
+    // err = lmp_chan_alloc_recv_slot(&lc);
+    // if (err_is_fail(err)){
+    //     printf("Could not allocate receive slot!\n");
+    //     exit(-1);
+    // }
+
+    // // register receive handler 
+    // err = lmp_chan_register_recv(&lc, ws, MKCLOSURE(recv_handler, &lc));
+    // if (err_is_fail(err)){
+    //     printf("Could not register receive handler!\n");
+    //     exit(-1);
+    // }
+    
+    // fst_client = NULL;
+
+    /* END LEGACY MILESTONE 3 CODE */
+
+    // TODO: Milestone 5
+
+    const char *module_name = "memeater";
+    struct mem_region *module = multiboot_find_module(bi, module_name);
+    debug_printf("hello\n");
+    if (module == NULL) {
+        debug_printf("could not find module [%s] in multiboot image\n", 
+            module_name);
+        return SPAWN_ERR_FIND_MODULE;
     }
 
-    // register receive handler 
-    err = lmp_chan_register_recv(&lc, ws, MKCLOSURE(recv_handler, &lc));
-    if (err_is_fail(err)){
-        printf("Could not register receive handler!\n");
-        exit(-1);
-    }
-    
-    fst_client = NULL;
     
     debug_printf("Entering dispatch loop\n");
     while(true) {

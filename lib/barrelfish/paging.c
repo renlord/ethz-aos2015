@@ -651,11 +651,7 @@ errval_t paging_region_unmap(struct paging_region *pr, lvaddr_t base, size_t byt
  */
 errval_t paging_alloc(struct paging_state *st, void **buf, size_t bytes)
 {
-    if(!st){
-        debug_printf("arg st is NULL");
-        exit(-1);
-    }
-    
+    assert(st != NULL);
     current = *st;
 
     // find virtual address from AVL-tree
@@ -686,7 +682,7 @@ errval_t paging_dealloc(struct paging_state *st, void *buf)
 errval_t paging_map_frame_attr(struct paging_state *st, void **buf,
                                size_t bytes, struct capref frame,
                                int flags, void *arg1, void *arg2)
-{
+{   
     errval_t err = paging_alloc(st, buf, bytes);
     if (err_is_fail(err)) {
         debug_printf("paging_map_frame_attr: Could not allocate space for frame cap: %s\n",
