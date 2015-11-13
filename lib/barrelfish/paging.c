@@ -390,7 +390,7 @@ static errval_t allocate_pt(struct paging_state *st, lvaddr_t addr,
     return err;
 }
                             
-errval_t paging_map_device(struct paging_state *st, lvaddr_t addr,
+errval_t paging_map_user_device(struct paging_state *st, lvaddr_t addr,
                             struct capref frame_cap, uint64_t start_offset, 
                             size_t length, int flags) 
 {

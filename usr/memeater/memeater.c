@@ -121,6 +121,7 @@ static void scan_line(char *buf)
     char c = '\0';
     memset(buf, '\0', 256);
     size_t i;
+    print_line("cli-demo-shell$ ");
     for (i = 0; i < 256; i++) {
         errval_t err = aos_rpc_serial_getchar(&local_rpc, &c);
         if (err_is_fail(err)) {
@@ -129,7 +130,10 @@ static void scan_line(char *buf)
             break;
         }
 
-        if (c == 13) break;
+        if (c == 13) {
+            print_line("\r\n");
+            break;
+        }
         memcpy(&buf[i], &c, 1);
     }
 }
@@ -177,11 +181,10 @@ static void cli_demo(void)
         if (strcmp(argv[0], "echo") == 0) {
 
             if (args < 2) {
-                print_line("CLI DEMO SHELL: Insufficient arguments for echo command!\r\n");
+                print_line("Insufficient arguments for echo command!\r\n");
                 continue;
             }
 
-            print_line("CLI DEMO SHELL: ");
             for (i = 1; i < args-1; i++) {
                 print_line(argv[i]);
                 print_line(" ");
@@ -192,24 +195,24 @@ static void cli_demo(void)
         } else if (strcmp(argv[0], "run_memtest") == 0) {
 
             if (args != 2) {
-                print_line("CLI DEMO SHELL: Insufficient argument size for run_memeater command!\r\n");
+                print_line("Insufficient argument size for run_memeater command!\r\n");
                 continue;
             }
 
-            print_line("CLI DEMO_SHELL: Running Small Chump Memory Test...\r\n");
+            print_line("Running Small Chump Memory Test...\r\n");
             perform_array_test(SMALL_CHUMP_SIZE, atoi(argv[1]));
-            print_line("CLI DEMO SHELL: Memory Test Completed.\r\n");
+            print_line("Memory Test Completed.\r\n");
             // run memeater test;
             // debug_printf("Performing small chump test...\n");
             // perform_array_test(SMALL_CHUMP_SIZE, SMALL_CHUMP_ARRAY_SIZE);
             // debug_printf("Done\n\n");
 
         } else if (strcmp(argv[0], "exit") == 0) {
-            print_line("CLI DEMO SHELL: exiting shell... goodbye\r\n");
+            print_line("exiting shell... goodbye\r\n");
             print_line("======== END BASIC SHELL ========\r\n");
             return;
         } else {
-            print_line("CLI DEMO SHELL: unknown command. try again\r\n");
+            print_line("unknown command. try again\r\n");
         }
 
         memset(input_buf, '\0', 256);
@@ -224,16 +227,16 @@ int main(int argc, char *argv[])
     aos_rpc_send_string(&local_rpc, " much longer text --  much longer text --  much longer text --  much longer text --  much longer text -- much longer text --  much longer text --  much longer text --  much longer text --  much longer text -- ");
     debug_printf("Done\n\n");
 
-    debug_printf("Performing Userland scanf test...\n");
-    char buf[256];
-    debug_printf("Type something here now: \n\n");
-    scan_line(buf);
-    debug_printf("scanned line was -----> %s\n", buf);
-    debug_printf("Done\n\n");
+    //debug_printf("Performing Userland scanf test...\n");
+    //char buf[256];
+    //debug_printf("Type something here now: \n\n");
+    //scan_line(buf);
+    //debug_printf("scanned line was -----> %s\n", buf);
+    //debug_printf("Done\n\n");
     
-    debug_printf("      ning Command Line Interface Demo...\n");
-    cli_demo();
-    debug_printf("Done\n\n");
+    //debug_printf("      ning Command Line Interface Demo...\n");
+    //cli_demo();
+    //debug_printf("Done\n\n");
 
     debug_printf("Performing small chump test...\n");
     perform_array_test(SMALL_CHUMP_SIZE, SMALL_CHUMP_ARRAY_SIZE);

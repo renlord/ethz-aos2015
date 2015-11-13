@@ -243,7 +243,7 @@ errval_t aos_rpc_get_dev_cap(struct aos_rpc *rpc, lpaddr_t paddr,
     
     uint64_t start = (uint64_t) (paddr - 0x40000000);
     
-    err = paging_map_device(get_current_paging_state(), (lvaddr_t) va, rpc->return_cap, 
+    err = paging_map_user_device(get_current_paging_state(), (lvaddr_t) va, rpc->return_cap, 
             start, length, VREGION_FLAGS_READ_WRITE);
 
     if (err_is_fail(err)) {

@@ -460,7 +460,7 @@ int main(int argc, char *argv[])
     
     size_t offset = OMAP44XX_MAP_L4_PER_UART3 - 0x40000000;
     lvaddr_t uart_addr = 1UL << 30;
-    err = paging_map_device(get_current_paging_state(), uart_addr,
+    err = paging_map_user_device(get_current_paging_state(), uart_addr,
                             cap_io, offset, OMAP44XX_MAP_L4_PER_UART3_SIZE,
                             VREGION_FLAGS_READ_WRITE_NOCACHE);
     
