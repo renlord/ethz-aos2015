@@ -456,11 +456,14 @@ int main(int argc, char *argv[])
     debug_printf("Initialized dev memory management\n");
         
     debug_printf("Allocating cap_io\n");
-    void *buf;
-    int flags = VREGION_FLAGS_READ_WRITE_NOCACHE;
 
-    err = paging_map_frame_attr(get_current_paging_state(), &buf, (1UL<<30),
-                                cap_io, flags, NULL, NULL);
+    
+    size_t offset = OMAP44XX_MAP_L4_PER_UART3 - 0x40000000;
+    lvaddr_t uart_addr = 1UL << 30;
+    err = paging_map_device(get_current_paging_state(), uart_addr,
+                            cap_io, offset, OMAP44XX_MAP_L4_PER_UART3_SIZE,
+                            VREGION_FLAGS_READ_WRITE_NOCACHE);
+    
     debug_printf("Done.\n");
 
     if (err_is_fail(err)) {
@@ -469,12 +472,13 @@ int main(int argc, char *argv[])
         abort();
     }
 
-    const uint32_t base_io = 0x40000000;
-    const uint32_t uart3_vaddr = (OMAP44XX_MAP_L4_PER_UART3 - base_io) + 
-        (lvaddr_t)buf;
+    set_uart3_registers(uart_addr);
 
-    set_uart3_registers(uart3_vaddr);
-
+    if (err_is_fail(err)) {
+        debug_printf("Failed to detach Input Reading Thread. %s\n", err_getstring(err));
+        err_print_calltrace(err);
+    }
+        
     // TODO (milestone 3) STEP 2:
     // get waitset
     struct waitset *ws = get_default_waitset();

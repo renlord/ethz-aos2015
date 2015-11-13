@@ -220,58 +220,30 @@ int main(int argc, char *argv[])
 {
     debug_printf("memeater started\n");
 
-    errval_t err;
-
-    // err = aos_rpc_init(&rpc);
-    // if (err_is_fail(err)){
-    //     debug_printf("Could not initialize RPC-module\n");
-    //     err_print_calltrace(err);
-    //     exit(-1);
-    // }
-
-    
     debug_printf("Performing String Test...\n");
     aos_rpc_send_string(&local_rpc, " much longer text --  much longer text --  much longer text --  much longer text --  much longer text -- much longer text --  much longer text --  much longer text --  much longer text --  much longer text -- ");
     debug_printf("Done\n\n");
 
-    // debug_printf("Try to get Serial Input from init...\n");
-    // char c;
-    // err = aos_rpc_serial_getchar(&local_rpc, &c);
-    // if (err_is_fail(err)) {
-    //     debug_printf("failed to get serial input from init... %s\n", 
-    //         err_getstring(err));
-    //     err_print_calltrace(err);
-    // }
-    // debug_printf("got this character from init ----> %c \n", c);
-    // debug_printf("Done\n\n");   
-
-    // debug_printf("Try to produce serial output from memeater...\n");
-    // err = aos_rpc_serial_putchar(&local_rpc, 'F');
-    // if (err_is_fail(err)) {
-    //     debug_printf("failed to put serial output from memeater... %s\n", 
-    //         err_getstring(err));
-    //     err_print_calltrace(err);
-    // }
-    // aos_rpc_serial_putchar(&local_rpc, '\r');
-    // aos_rpc_serial_putchar(&local_rpc, '\n');
-    // debug_printf("Done\n\n");
-
-    // debug_printf("Performing Userland printf test...\n");
-    // print_line("hello world\n");
-    // debug_printf("Done\n\n");
-
-    // debug_printf("Performing Userland scanf test...\n");
-    // char buf[256];
-    // debug_printf("Type something here now: \n\n");
-    // scan_line(buf);
-    // debug_printf("scanned line was -----> %s\n", buf);
-    // debug_printf("Done\n\n");
-
-    debug_printf("Getting IO Cap from Init...\n");
+    debug_printf("Performing Userland scanf test...\n");
+    char buf[256];
+    debug_printf("Type something here now: \n\n");
+    scan_line(buf);
+    debug_printf("scanned line was -----> %s\n", buf);
+    debug_printf("Done\n\n");
     
+    debug_printf("      ning Command Line Interface Demo...\n");
+    cli_demo();
+    debug_printf("Done\n\n");
+
+    debug_printf("Performing small chump test...\n");
+    perform_array_test(SMALL_CHUMP_SIZE, SMALL_CHUMP_ARRAY_SIZE);
+    debug_printf("Done\n\n");
+
+    // debug_printf("Getting IO Cap from Init...\n");    
     //struct capref retcap;
     //size_t retlen;
     // TODO: fix me
+    // errval_t err;
     // err = aos_rpc_get_dev_cap(&local_rpc, OMAP44XX_MAP_L4_PER_UART3, 
     //     OMAP44XX_MAP_L4_PER_UART3_SIZE, &retcap, &retlen);
     

@@ -30,7 +30,7 @@
 #define V_OFFSET (1UL << 25)
 #define ALLOCED_BLOB(n) (n->allocated && !n->left && !n->right)
 #define MAX_STRUCT_SIZE (1UL << 10)
-#define MIN_BLOB_SIZE 4 // minimum size to allocate
+#define MIN_BLOB_SIZE 1//(ENTRIES_PER_FRAME*BASE_PAGE_SIZE) // minimum size to allocate
 
 #define MAX(a,b) \
     ({ __typeof__ (a) _a = (a); \
@@ -389,12 +389,45 @@ static errval_t allocate_pt(struct paging_state *st, lvaddr_t addr,
 
     return err;
 }
-
-errval_t paging_map_user_device(struct paging_state *st, lvaddr_t addr,
+                            
+errval_t paging_map_device(struct paging_state *st, lvaddr_t addr,
                             struct capref frame_cap, uint64_t start_offset, 
                             size_t length, int flags) 
 {
-    return allocate_pt(st, addr, frame_cap, start_offset, length, flags);
+    errval_t err;
+    
+    cslot_t l1_slot = ARM_L1_USER_OFFSET(addr);
+    cslot_t l2_slot = ARM_L2_USER_OFFSET(addr);
+    uint32_t l2_entries = DIVIDE_ROUND_UP(length, BASE_PAGE_SIZE);
+
+    struct capref *l2_cap = &(st->l2_caps[l1_slot]);
+    if(capref_is_null(*l2_cap)) {
+        // Allocate capability
+        arml2_alloc(l2_cap);
+
+        // Insert L2 pagetable in L1 pagetable
+        err = vnode_map(st->l1_cap, *l2_cap, l1_slot,
+                        VREGION_FLAGS_READ_WRITE, 0, 1);
+
+        if (err_is_fail(err)) {
+            debug_printf("Could not insert L2 pagetable in L1 pagetable"
+                         " for addr 0x%08x: %s\n", addr, err_getstring(err));
+            err_print_calltrace(err);
+            return err;
+        }
+    }
+    
+    
+    debug_printf("map_device: l1: %d, l2: %d, entries: %d\n", l1_slot, l2_slot, l2_entries);
+    err = vnode_map(*l2_cap, frame_cap, l2_slot,
+                    flags, start_offset, l2_entries);
+    if (err_is_fail(err)){
+        debug_printf("Could not insert dev cap in L2 pagetable"
+                     " for addr 0x%08x: %s\n", addr, err_getstring(err));
+        err_print_calltrace(err);
+        return err;
+    }
+    return SYS_ERR_OK;
 }
 
 void page_fault_handler(enum exception_type type, int subtype,
@@ -622,7 +655,7 @@ errval_t paging_alloc(struct paging_state *st, void **buf, size_t bytes)
         debug_printf("arg st is NULL");
         exit(-1);
     }
-
+    
     current = *st;
 
     // find virtual address from AVL-tree
