@@ -242,25 +242,18 @@ int main(int argc, char *argv[])
     perform_array_test(SMALL_CHUMP_SIZE, SMALL_CHUMP_ARRAY_SIZE);
     debug_printf("Done\n\n");
 
-    // debug_printf("Getting IO Cap from Init...\n");    
-    //struct capref retcap;
-    //size_t retlen;
-    // TODO: fix me
-    // errval_t err;
-    // err = aos_rpc_get_dev_cap(&local_rpc, OMAP44XX_MAP_L4_PER_UART3, 
-    //     OMAP44XX_MAP_L4_PER_UART3_SIZE, &retcap, &retlen);
-    
-    // errval_t err;
-    // struct capref retcap;
-    // size_t retlen;
-    // err = aos_rpc_get_dev_cap(&local_rpc, OMAP44XX_MAP_L4_PER_UART3, OMAP44XX_MAP_L4_PER_UART3_SIZE,
-    //         &retcap, &retlen);
-    //
-    // if (err_is_fail(err)) {
-    //     debug_printf("Failed to get IO Cap from init... %s\n");
-    //     err_print_calltrace(err);
-    //     exit(-1);
-    // }
+    debug_printf("Getting IO Cap from Init...\n");
+    errval_t err;
+    struct capref retcap;
+    size_t retlen;
+    err = aos_rpc_get_dev_cap(&local_rpc, OMAP44XX_MAP_L4_PER_UART3,
+        OMAP44XX_MAP_L4_PER_UART3_SIZE, &retcap, &retlen);
+
+    if (err_is_fail(err)) {
+        debug_printf("Failed to get IO Cap from init... %s\n");
+        err_print_calltrace(err);
+        exit(-1);
+    }
 
     debug_printf("Running Command Line Interface Demo...\n");
     cli_demo();
