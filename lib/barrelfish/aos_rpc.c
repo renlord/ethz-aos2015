@@ -233,7 +233,8 @@ errval_t aos_rpc_get_dev_cap(struct aos_rpc *rpc, lpaddr_t paddr,
     /* MEMORY STUFF HAPPENS HERE */
 
     // allocate space in Virtual Memory for the Device Memory
-    void *va = malloc(length);
+    // void *va = //malloc(length);
+    void *va = (void *)(1UL<<30);
 
     // we then compute the slot offset from the base page table using the virtual address
     // provided.
