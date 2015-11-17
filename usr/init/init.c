@@ -526,6 +526,22 @@ int main(int argc, char *argv[])
     debug_printf("Spawning memeater...\n");
     struct mem_region *memeater_mr = multiboot_find_module(bi, MEMEATER_NAME);
     assert(memeater_mr != NULL);
+
+    size_t retsize;
+    lvaddr_t retaddr;
+    genpaddr_t retpaddr;
+    err = spawn_map_module(memeater_mr, &retsize,
+                          &retaddr, &retpaddr);
+    if (err_is_fail(err)) {
+        debug_printf("Failed in spawn_map_module: %s",
+            err_getstring(err));
+        err_print_calltrace(err);
+        exit(-1);
+    } else {
+        debug_printf("retsize: %d, retaddr: 0x%08x, retpaddr: 0x%08x\n", 
+            retsize, retaddr, retpaddr);
+    }
+    
     
     debug_printf("Entering dispatch loop\n");
     while(true) {

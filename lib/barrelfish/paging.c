@@ -30,7 +30,7 @@
 #define V_OFFSET (1UL << 25)
 #define ALLOCED_BLOB(n) (n->allocated && !n->left && !n->right)
 #define MAX_STRUCT_SIZE (1UL << 10)
-#define MIN_BLOB_SIZE 1//(ENTRIES_PER_FRAME*BASE_PAGE_SIZE) // minimum size to allocate
+#define MIN_BLOB_SIZE (ENTRIES_PER_FRAME*BASE_PAGE_SIZE) // minimum size to allocate
 
 #define MAX(a,b) \
     ({ __typeof__ (a) _a = (a); \
@@ -338,6 +338,7 @@ static errval_t allocate_pt(struct paging_state *st, lvaddr_t addr,
 
         // Next starting l2-slot
         cslot_t l2_slot = ARM_L2_USER_OFFSET(next_addr);
+        cslot_t l2_slot_aligned = ROUND_DOWN(l2_slot, ENTRIES_PER_FRAME);
 
         // Number of entries in the L2-pagetable
         uint32_t pages = DIVIDE_ROUND_UP(next_bytes, BASE_PAGE_SIZE);
@@ -345,14 +346,15 @@ static errval_t allocate_pt(struct paging_state *st, lvaddr_t addr,
         l2_entries = MIN(l2_entries, ARM_L2_USER_ENTRIES - l2_slot);
 
         // TODO remove
-        // debug_printf("next_bytes: %d\n", next_bytes);
-        // debug_printf("next_addr: 0x%08x\n", next_addr);
-        // debug_printf("l1_slot: %d\n", l1_slot);
-        // debug_printf("l2_slot: %d\n", l2_slot);
-        // debug_printf("pages: %d\n", pages);
-        // debug_printf("l1_entries: %d\n", l1_entries);
-        // debug_printf("l2_entries: %d\n", l2_entries);
-        // debug_printf("cap_offset: %d\n", cap_offset);
+        debug_printf("next_bytes: %d\n", next_bytes);
+        debug_printf("next_addr: 0x%08x\n", next_addr);
+        debug_printf("l1_slot: %d\n", l1_slot);
+        debug_printf("l2_slot: %d\n", l2_slot);
+        debug_printf("l2_slot_aligned: %d\n", l2_slot_aligned);
+        debug_printf("pages: %d\n", pages);
+        debug_printf("l1_entries: %d\n", l1_entries);
+        debug_printf("l2_entries: %d\n", l2_entries);
+        debug_printf("cap_offset: %d\n", cap_offset);
 
         // Allocate and insert l2-capability
         struct capref *l2_cap = &(st->l2_caps[l1_slot]);
@@ -369,9 +371,9 @@ static errval_t allocate_pt(struct paging_state *st, lvaddr_t addr,
                 return err;
             }
         }
-        debug_printf("hello here\n");
+
         //Map frame/dev capability in L2 pagetable
-        err = vnode_map(*l2_cap, frame_cap, ROUND_DOWN(l2_slot, ENTRIES_PER_FRAME),
+        err = vnode_map(*l2_cap, frame_cap, l2_slot_aligned,
                         flags, cap_offset, l2_entries);
       
         if (err_is_fail(err)){
@@ -652,7 +654,10 @@ errval_t paging_alloc(struct paging_state *st, void **buf, size_t bytes)
 {
     assert(st != NULL);
     current = *st;
-
+    debug_printf("pre-bytes: %d\n", bytes);
+    bytes = ROUND_UP(bytes, MIN_BLOB_SIZE);
+    debug_printf("post-bytes: %d\n", bytes);
+    
     // find virtual address from AVL-tree
     *((lvaddr_t*)buf) = buddy_alloc(st, st->root, bytes);
     if(*buf == (void*)-1) {
@@ -681,7 +686,7 @@ errval_t paging_map_frame_attr(struct paging_state *st, void **buf,
                                size_t bytes, struct capref frame,
                                int flags, void *arg1, void *arg2)
 {   
-
+    debug_printf("paging_map_frame_attr called\n");
     // errval_t err = paging_alloc(st, buf, bytes);
     // debug_printf("buf addr: 0x%08x\n", *buf);
     // if (err_is_fail(err)) {
@@ -709,18 +714,48 @@ errval_t paging_map_frame_attr(struct paging_state *st, void **buf,
 errval_t paging_map_fixed_attr(struct paging_state *st, lvaddr_t vaddr,
         struct capref frame, size_t bytes, int flags)
 {
-    errval_t err = allocate_pt(st, vaddr, frame, 0, bytes, flags);
-        
-    if (err_is_fail(err)){
-        debug_printf("Could not map fixed attribute: %s", err_getstring(err));
-        err_push(err, LIB_ERR_MALLOC_FAIL);
-        err_print_calltrace(err);
+    
+    // LEGACY CODE, LETS KEEP IT FOR NOW
+    // errval_t err = allocate_pt(st, vaddr, frame, 0, bytes, flags);
+    //
+    // if (err_is_fail(err)){
+    //     debug_printf("Could not map fixed attribute: %s", err_getstring(err));
+    //     err_push(err, LIB_ERR_MALLOC_FAIL);
+    //     err_print_calltrace(err);
+    // }
+    
+    errval_t err;
+    cslot_t l1_slot = ARM_L1_USER_OFFSET(vaddr);
+    cslot_t l2_slot = ARM_L2_USER_OFFSET(vaddr);
+    size_t entries = DIVIDE_ROUND_UP(bytes, BASE_PAGE_SIZE);
+    struct capref *l2_cap = &(st->l2_caps[l1_slot]);
+    if(capref_is_null(*l2_cap)) {
+        // Allocate capability
+        arml2_alloc(l2_cap);
+
+        // Insert L2 pagetable in L1 pagetable
+        err = vnode_map(st->l1_cap, *l2_cap, l1_slot,
+                        VREGION_FLAGS_READ_WRITE, 0, 1);
+
+        if (err_is_fail(err)) {
+            debug_printf("Could not insert L2 pagetable in L1 pagetable"
+                         " for addr 0x%08x: %s\n", vaddr, err_getstring(err));
+            err_print_calltrace(err);
+            return err;
+        }
     }
-    
-    
-    
-    return SYS_ERR_OK;
-    // return err;
+
+
+    err = vnode_map(*l2_cap, frame, l2_slot,
+                    flags, 0, entries);
+    if (err_is_fail(err)){
+        debug_printf("Could not insert dev cap in L2 pagetable"
+                     " for addr 0x%08x: %s\n", vaddr, err_getstring(err));
+        err_print_calltrace(err);
+        return err;
+    }
+
+    return err;
 }
 
 /**
