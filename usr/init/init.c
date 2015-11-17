@@ -28,6 +28,8 @@
 #define FIRSTEP_BUFLEN 20u
 #define HARD_LIMIT (1UL << 28)
 
+#define MEMEATER_NAME "armv7/sbin/memeater"
+
 struct bootinfo *bi;
 static coreid_t my_core_id;
 
@@ -501,7 +503,7 @@ int main(int argc, char *argv[])
     // lc.endpoint = my_ep;
     // lc.local_cap = cap_selfep;
     
-    // // allocate slot for incoming capability from memeater
+    // // allocate slot for incoming capability from memeatermultiboot_find_module(bi, name);
     // err = lmp_chan_alloc_recv_slot(&lc);
     // if (err_is_fail(err)){
     //     printf("Could not allocate receive slot!\n");
@@ -521,15 +523,9 @@ int main(int argc, char *argv[])
 
     // TODO: Milestone 5
 
-    const char *module_name = "memeater";
-    struct mem_region *module = multiboot_find_module(bi, module_name);
-    debug_printf("hello\n");
-    if (module == NULL) {
-        debug_printf("could not find module [%s] in multiboot image\n", 
-            module_name);
-        return SPAWN_ERR_FIND_MODULE;
-    }
-
+    debug_printf("Spawning memeater...\n");
+    struct mem_region *memeater_mr = multiboot_find_module(bi, MEMEATER_NAME);
+    assert(memeater_mr != NULL);
     
     debug_printf("Entering dispatch loop\n");
     while(true) {
