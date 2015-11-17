@@ -337,8 +337,7 @@ static errval_t allocate_pt(struct paging_state *st, lvaddr_t addr,
         assert(0 < next_bytes && next_bytes <= bytes);
 
         // Next starting l2-slot
-        cslot_t l2_slot =
-            ARM_L2_USER_OFFSET(next_addr)+(ARM_L1_USER_OFFSET(next_addr)%4)*ARM_L2_USER_ENTRIES;
+        cslot_t l2_slot = ARM_L2_USER_OFFSET(next_addr);
 
         // Number of entries in the L2-pagetable
         uint32_t pages = DIVIDE_ROUND_UP(next_bytes, BASE_PAGE_SIZE);
@@ -346,15 +345,14 @@ static errval_t allocate_pt(struct paging_state *st, lvaddr_t addr,
         l2_entries = MIN(l2_entries, ARM_L2_USER_ENTRIES - l2_slot);
 
         // TODO remove
-        debug_printf("next_bytes: %d\n", next_bytes);
-        debug_printf("next_addr: 0x%08x\n", next_addr);
-        debug_printf("l1_slot: %d\n", l1_slot);
-        debug_printf("l2_slot: %d\n", l2_slot);
-        debug_printf("pages: %d\n", pages);
-        debug_printf("l1_entries: %d\n", l1_entries);
-        debug_printf("l2_entries: %d\n", l2_entries);
-        debug_printf("cap_offset: %d\n", cap_offset);
-
+        // debug_printf("next_bytes: %d\n", next_bytes);
+        // debug_printf("next_addr: 0x%08x\n", next_addr);
+        // debug_printf("l1_slot: %d\n", l1_slot);
+        // debug_printf("l2_slot: %d\n", l2_slot);
+        // debug_printf("pages: %d\n", pages);
+        // debug_printf("l1_entries: %d\n", l1_entries);
+        // debug_printf("l2_entries: %d\n", l2_entries);
+        // debug_printf("cap_offset: %d\n", cap_offset);
 
         // Allocate and insert l2-capability
         struct capref *l2_cap = &(st->l2_caps[l1_slot]);
@@ -393,6 +391,8 @@ errval_t paging_map_user_device(struct paging_state *st, lvaddr_t addr,
                             struct capref frame_cap, uint64_t start_offset, 
                             size_t length, int flags) 
 {
+    debug_printf("paging_map_user_device called\n");
+    
     errval_t err;
     
     cslot_t l1_slot = ARM_L1_USER_OFFSET(addr);
@@ -681,14 +681,22 @@ errval_t paging_map_frame_attr(struct paging_state *st, void **buf,
                                size_t bytes, struct capref frame,
                                int flags, void *arg1, void *arg2)
 {   
-    errval_t err = paging_alloc(st, buf, bytes);
-    debug_printf("buf addr: 0x%08x\n", *buf);
-    if (err_is_fail(err)) {
-        debug_printf("paging_map_frame_attr: Could not allocate space for frame cap: %s\n",
-            err_getstring(err));
-        err_push(err, LIB_ERR_MALLOC_FAIL);
-        err_print_calltrace(err);
-        return err;
+
+    // errval_t err = paging_alloc(st, buf, bytes);
+    // debug_printf("buf addr: 0x%08x\n", *buf);
+    // if (err_is_fail(err)) {
+    //     debug_printf("paging_map_frame_attr: Could not allocate space for frame cap: %s\n",
+    //         err_getstring(err));
+    //     err_push(err, LIB_ERR_MALLOC_FAIL);
+    //     err_print_calltrace(err);
+    //     return err;
+    // }
+
+    bytes = ROUND_UP(bytes, BASE_PAGE_SIZE*ENTRIES_PER_FRAME);
+    *((lvaddr_t*)buf) = buddy_alloc(st, st->root, bytes);
+    if(*buf == (void*)-1) {
+        debug_printf("Could not allocate space\n");
+        exit(-1);
     }
     
     return paging_map_fixed_attr(st, (lvaddr_t)(*buf), frame, bytes, flags);
