@@ -21,7 +21,9 @@
 #include <barrelfish/lmp_chan.h>
 #include <barrelfish/aos_rpc.h>
 #include <barrelfish/sys_debug.h>
+#include <barrelfish/sys_debug.h>
 #include <omap44xx_map.h>
+#include "../../lib/spawndomain/arch.h"
 
 
 #define MAX_CLIENTS 50
@@ -540,6 +542,36 @@ int main(int argc, char *argv[])
     } else {
         debug_printf("retsize: %d, retaddr: 0x%08x, retpaddr: 0x%08x\n", 
             retsize, retaddr, retpaddr);
+    }
+        
+    
+
+    struct spawninfo si;
+    err = spawn_load_image(&si, retaddr,
+                          retsize, CPU_ARM,
+                          MEMEATER_NAME, 0,
+                          NULL, NULL,
+                          NULL_CAP, NULL_CAP);
+    if (err_is_fail(err)) {
+        debug_printf("Failed spawn image: %s\n",
+            err_getstring(err));
+        err_print_calltrace(err);
+        exit(-1);
+    } else {
+        debug_printf("Spawned image!\n");
+    }
+    
+    
+    genvaddr_t entry;
+    void *arch_info;
+    err = spawn_arch_load((struct spawninfo *)memeater_mr, retaddr, retsize, &entry, &arch_info);
+    if (err_is_fail(err)) {
+        debug_printf("Failed to spawn elf: %s",
+            err_getstring(err));
+        err_print_calltrace(err);
+        exit(-1);
+    } else {
+        debug_printf("arch_info: %08x\n", arch_info);
     }
     
     

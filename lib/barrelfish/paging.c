@@ -654,9 +654,7 @@ errval_t paging_alloc(struct paging_state *st, void **buf, size_t bytes)
 {
     assert(st != NULL);
     current = *st;
-    debug_printf("pre-bytes: %d\n", bytes);
     bytes = ROUND_UP(bytes, MIN_BLOB_SIZE);
-    debug_printf("post-bytes: %d\n", bytes);
     
     // find virtual address from AVL-tree
     *((lvaddr_t*)buf) = buddy_alloc(st, st->root, bytes);
