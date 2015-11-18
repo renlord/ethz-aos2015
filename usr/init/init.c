@@ -526,32 +526,15 @@ int main(int argc, char *argv[])
     // TODO: Milestone 5
 
     debug_printf("Spawning memeater...\n");
+    
     struct mem_region *memeater_mr = multiboot_find_module(bi, MEMEATER_NAME);
     assert(memeater_mr != NULL);
 
-    size_t retsize;
-    lvaddr_t retaddr;
-    genpaddr_t retpaddr;
-    err = spawn_map_module(memeater_mr, &retsize,
-                          &retaddr, &retpaddr);
-    if (err_is_fail(err)) {
-        debug_printf("Failed in spawn_map_module: %s",
-            err_getstring(err));
-        err_print_calltrace(err);
-        exit(-1);
-    } else {
-        debug_printf("retsize: %d, retaddr: 0x%08x, retpaddr: 0x%08x\n", 
-            retsize, retaddr, retpaddr);
-    }
-        
-    
-
     struct spawninfo si;
-    err = spawn_load_image(&si, retaddr,
-                          retsize, CPU_ARM,
-                          MEMEATER_NAME, 0,
-                          NULL, NULL,
-                          NULL_CAP, NULL_CAP);
+    err = spawn_load_with_args(&si, memeater_mr,
+                                  MEMEATER_NAME, disp_get_core_id(),
+                                  NULL, NULL);
+    
     if (err_is_fail(err)) {
         debug_printf("Failed spawn image: %s\n",
             err_getstring(err));
@@ -559,21 +542,7 @@ int main(int argc, char *argv[])
         exit(-1);
     } else {
         debug_printf("Spawned image!\n");
-    }
-    
-    
-    genvaddr_t entry;
-    void *arch_info;
-    err = spawn_arch_load((struct spawninfo *)memeater_mr, retaddr, retsize, &entry, &arch_info);
-    if (err_is_fail(err)) {
-        debug_printf("Failed to spawn elf: %s",
-            err_getstring(err));
-        err_print_calltrace(err);
-        exit(-1);
-    } else {
-        debug_printf("arch_info: %08x\n", arch_info);
-    }
-    
+    }    
     
     debug_printf("Entering dispatch loop\n");
     while(true) {

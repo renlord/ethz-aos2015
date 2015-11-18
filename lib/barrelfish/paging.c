@@ -99,9 +99,11 @@ lvaddr_t buddy_alloc(struct paging_state *st,
 lvaddr_t buddy_alloc(struct paging_state *st,
                      struct node *cur, size_t req_size)
 {   
+    debug_printf("buddy_alloc called for state 0x%08x\n", st);
     // Pre-conditions
     assert((!cur->left && !cur->right) || (cur->left && cur->right));
     
+    debug_printf("checkpoint\n");
     // Size available in subtree is less than what's requested
     if (cur->max_size < req_size){
         return -1;
@@ -145,7 +147,6 @@ lvaddr_t buddy_alloc(struct paging_state *st,
             debug_get_free_space(&pre_free, &pre_alloc);
             */
             
-            assert(&current == st);
             assert(cur->max_size > 0);
 
             cur->allocated = true;
@@ -346,15 +347,11 @@ static errval_t allocate_pt(struct paging_state *st, lvaddr_t addr,
         l2_entries = MIN(l2_entries, ARM_L2_USER_ENTRIES - l2_slot);
 
         // TODO remove
-        debug_printf("next_bytes: %d\n", next_bytes);
-        debug_printf("next_addr: 0x%08x\n", next_addr);
         debug_printf("l1_slot: %d\n", l1_slot);
         debug_printf("l2_slot: %d\n", l2_slot);
         debug_printf("l2_slot_aligned: %d\n", l2_slot_aligned);
         debug_printf("pages: %d\n", pages);
-        debug_printf("l1_entries: %d\n", l1_entries);
-        debug_printf("l2_entries: %d\n", l2_entries);
-        debug_printf("cap_offset: %d\n", cap_offset);
+        debug_printf("l2_entries: %d\n\n", l2_entries);
 
         // Allocate and insert l2-capability
         struct capref *l2_cap = &(st->l2_caps[l1_slot]);
@@ -510,7 +507,7 @@ void page_fault_handler(enum exception_type type, int subtype,
 errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
         struct capref pdir)
 {
-    debug_printf("paging_init_state\n");
+    debug_printf("paging_init_state called for st: 0x%08x\n", st);
     
     start_vaddr = MAX(start_vaddr, V_OFFSET);
     st->l1_cap = pdir;
@@ -520,14 +517,7 @@ errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
         st->l2_caps[i] = NULL_CAP;
     }
     
-    // for(uint32_t i = 0; i < NO_OF_FRAMES; i++){
-    //     st->frame_caps[i] = NULL_CAP;
-    // }
-    
-    // st->guard_cap = NULL_CAP;
-
     st->next_node = st->all_nodes;
-    // st->next_frame = st->frame_caps;
     st->root = create_node(st);
     st->root->max_size = (1UL << 31); // TODO subtract stack size
     st->root->addr = 0;
@@ -657,7 +647,9 @@ errval_t paging_alloc(struct paging_state *st, void **buf, size_t bytes)
     bytes = ROUND_UP(bytes, MIN_BLOB_SIZE);
     
     // find virtual address from AVL-tree
+    debug_printf("calling buddy_alloc()\n");
     *((lvaddr_t*)buf) = buddy_alloc(st, st->root, bytes);
+    debug_printf("buddy_alloc returned with 0x%08x\n", *buf);
     if(*buf == (void*)-1) {
         debug_printf("Could not allocate space\n");
         exit(-1);
