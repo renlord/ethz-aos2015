@@ -533,16 +533,25 @@ int main(int argc, char *argv[])
     struct spawninfo si;
     err = spawn_load_with_args(&si, memeater_mr,
                                   MEMEATER_NAME, disp_get_core_id(),
-                                  NULL, NULL);
-    
+                                  argv, argv);
+
     if (err_is_fail(err)) {
         debug_printf("Failed spawn image: %s\n",
             err_getstring(err));
         err_print_calltrace(err);
         exit(-1);
     } else {
-        debug_printf("Spawned image!\n");
+        debug_printf("Image spawned.\n");
     }    
+
+    err = spawn_run(&si);
+    if (err_is_fail(err)) {
+        debug_printf("Failed spawn image: %s\n",
+            err_getstring(err));
+        err_print_calltrace(err);
+        exit(-1);
+    }
+    
     
     debug_printf("Entering dispatch loop\n");
     while(true) {
