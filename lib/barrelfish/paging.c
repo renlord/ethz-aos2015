@@ -30,7 +30,8 @@
 #define V_OFFSET (1UL << 25)
 #define ALLOCED_BLOB(n) (n->allocated && !n->left && !n->right)
 #define MAX_STRUCT_SIZE (1UL << 10)
-#define MIN_BLOB_SIZE (ENTRIES_PER_FRAME*BASE_PAGE_SIZE) // minimum size to allocate
+// minimum size to allocate
+#define MIN_BLOB_SIZE (ENTRIES_PER_FRAME*BASE_PAGE_SIZE) 
 
 #define MAX(a,b) \
     ({ __typeof__ (a) _a = (a); \
@@ -189,7 +190,8 @@ lvaddr_t buddy_alloc(struct paging_state *st,
         // Post conditions
         assert((!cur->left && !cur->right) || (cur->left && cur->right));
         assert(ALLOCED_BLOB(cur->left) || cur->max_size >= cur->left->max_size);
-        assert(ALLOCED_BLOB(cur->right) || cur->max_size >= cur->right->max_size);
+        assert(ALLOCED_BLOB(cur->right) || cur->max_size >= 
+            cur->right->max_size);
         
         return addr;
     }    
@@ -306,6 +308,7 @@ static errval_t allocate_pt(struct paging_state *st, lvaddr_t addr,
     errval_t err = SYS_ERR_OK;
 
     // Relevant pagetable slots
+    debug_printf("address passed in: 0x%08x\n", addr);
     cslot_t l1_slot = ARM_L1_USER_OFFSET(addr);
 
     uint32_t l1_entries =
@@ -319,6 +322,7 @@ static errval_t allocate_pt(struct paging_state *st, lvaddr_t addr,
         // capability before mapping
         if (i > 0) {
             
+            // more generic copying I suppose? 
             struct capref newcap;
             slot_alloc(&newcap);
             err = cap_retype(newcap, frame_cap, ObjType_Frame, log2ceil(bytes));
@@ -354,18 +358,20 @@ static errval_t allocate_pt(struct paging_state *st, lvaddr_t addr,
 
         // Number of entries in the L2-pagetable
         uint32_t pages = DIVIDE_ROUND_UP(next_bytes, BASE_PAGE_SIZE);
-        uint32_t l2_entries = align ? ROUND_UP(pages, ENTRIES_PER_FRAME) : pages;
+        uint32_t l2_entries = align ? ROUND_UP(pages, ENTRIES_PER_FRAME) : 
+            pages;
         l2_entries = MIN(l2_entries, ARM_L2_USER_ENTRIES - l2_slot);
 
         // TODO remove
-        // debug_printf("st: 0x%08x\n", st);
-        // debug_printf("frame_cap.cnode: 0x%08x\n", frame_cap.cnode);
-        // debug_printf("l1_slot: %d\n", l1_slot);
-        // debug_printf("l2_slot: %d\n", l2_slot);
-        // debug_printf("l2_slot_aligned: %d\n", l2_slot_aligned);
-        // debug_printf("pages: %d\n", pages);
-        // debug_printf("l2_entries: %d\n\n", l2_entries);
-
+#if 1
+        debug_printf("st: 0x%08x\n", st);
+        debug_printf("frame_cap.cnode: 0x%08x\n", frame_cap.cnode);
+        debug_printf("l1_slot: %d\n", l1_slot);
+        debug_printf("l2_slot: %d\n", l2_slot);
+        debug_printf("l2_slot_aligned: %d\n", l2_slot_aligned);
+        debug_printf("pages: %d\n", pages);
+        debug_printf("l2_entries: %d\n\n", l2_entries);
+#endif
         // Allocate and insert l2-capability
         struct capref *l2_cap = &(st->l2_caps[l1_slot]);
         if(capref_is_null(*l2_cap)) {
@@ -374,9 +380,9 @@ static errval_t allocate_pt(struct paging_state *st, lvaddr_t addr,
 
             // Insert L2 pagetable in L1 pagetable
             err = vnode_map(st->l1_cap, *l2_cap, l1_slot, flags, 0, 1);
-
             if (err_is_fail(err)) {
-                debug_printf("Could not insert L2 pagetable in L1 pagetable for addr 0x%08x: %s\n", addr, err_getstring(err));
+                debug_printf("Could not insert L2 pagetable in L1 pagetable "
+                    "for addr 0x%08x: %s\n", addr, err_getstring(err));
                 err_print_calltrace(err);
                 return err;
             }
@@ -385,10 +391,9 @@ static errval_t allocate_pt(struct paging_state *st, lvaddr_t addr,
         //Map frame/dev capability in L2 pagetable
         err = vnode_map(*l2_cap, frame_cap, l2_slot_aligned,
                         flags, cap_offset, l2_entries);
-      
-        if (err_is_fail(err)){
-            debug_printf("Could not insert frame in L2 pagetable for addr 0x%08x: %s\n",
-                         addr, err_getstring(err));
+        if (err_is_fail(err)) {
+            debug_printf("Could not insert frame in L2 pagetable for" 
+                " addr 0x%08x: %s\n", addr, err_getstring(err));
             err_print_calltrace(err);
             return err;
         }
@@ -593,7 +598,8 @@ void paging_init_onthread(struct thread *t)
  * This function gets used in some of the code that is responsible
  * for allocating Frame (and other) capabilities.
  */
-errval_t paging_region_init(struct paging_state *st, struct paging_region *pr, size_t size)
+errval_t paging_region_init(struct paging_state *st, struct paging_region *pr, 
+    size_t size)
 {
     void *base;
     errval_t err = paging_alloc(st, &base, size);
@@ -641,7 +647,8 @@ errval_t paging_region_map(struct paging_region *pr, size_t req_size,
  * for allocating Frame (and other) capabilities.
  * We ignore unmap requests right now.
  */
-errval_t paging_region_unmap(struct paging_region *pr, lvaddr_t base, size_t bytes)
+errval_t paging_region_unmap(struct paging_region *pr, lvaddr_t base, 
+    size_t bytes)
 {
     // XXX: should free up some space in paging region, however need to track
     //      holes for non-trivial case

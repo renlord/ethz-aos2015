@@ -422,7 +422,6 @@ errval_t aos_rpc_init(struct aos_rpc *rpc)
     }
     
     // Request pid from init
-    debug_printf("fucks up here\n");
     // for some reason, could not see that initep is attached to init's dispatcher? 
     err = lmp_chan_send1(&(rpc->lc), LMP_SEND_FLAGS_DEFAULT,
                         rpc->lc.local_cap, REQUEST_CHAN);
@@ -435,6 +434,7 @@ errval_t aos_rpc_init(struct aos_rpc *rpc)
 
     // register in paging state
     struct paging_state *st = get_current_paging_state();
+    
     st->rpc = rpc;
 
     // Listen for response from init. When recv_handler returns,

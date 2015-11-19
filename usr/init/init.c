@@ -27,8 +27,18 @@
 
 
 #define MAX_CLIENTS 50
-#define FIRSTEP_BUFLEN 20u
+// #define FIRSTEP_BUFLEN 20u
 #define HARD_LIMIT (1UL << 28)
+
+ // first EP starts in dispatcher frame after dispatcher (33472 bytes)
+// and the value we use for the mint operation is the offset of the kernel
+// struct in the lmp_endpoint struct (+56 bytes)
+// FIRSTEP_OFFSET = get_dispatcher_size() + offsetof(struct lmp_endpoint, k)
+#define FIRSTEP_OFFSET          (33472u + 56u)
+// buflen is in words for mint
+// FIRSTEP_BUFLEN = (sizeof(struct lmp_endpoint) +
+//                  (DEFAULT_LMP_BUF_WORDS + 1) * sizeof(uintptr_t))
+#define FIRSTEP_BUFLEN          21u
 
 #define MEMEATER_NAME "armv7/sbin/memeater"
 
@@ -108,6 +118,9 @@ void recv_handler(void *lc_in)
         debug_printf("Bad msg for init.\n");
         return;
     }
+
+    // TODO: destroy current receive struct? or reuse?
+
     
     // Allocate receive struct right away for next msg
     err = lmp_chan_alloc_recv_slot(lc);
@@ -134,7 +147,6 @@ void recv_handler(void *lc_in)
                 return;
             }
                         
-
             // Create new endpoint and channel, and initialize
             struct capref ep_cap;
             struct lmp_endpoint *my_ep; 
@@ -195,6 +207,8 @@ void recv_handler(void *lc_in)
                 err_print_calltrace(err);
                 return;
             }
+
+            debug_printf("first lmp msg OK!\n");
             
             break;
         }
@@ -466,17 +480,21 @@ int main(int argc, char *argv[])
         abort();
     }
 
-    debug_printf("Init Endpoint created\n");
-        
-    debug_printf("Allocating cap_io\n");
-    
+    err = cap_mint(cap_initep, cap_selfep, FIRSTEP_OFFSET, FIRSTEP_BUFLEN);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "failed to mint cap_selfep to cap_initep\n");
+        abort();
+    }
+
+    debug_printf("cap_initep, cap_selfep OK.\n");
+            
     size_t offset = OMAP44XX_MAP_L4_PER_UART3 - 0x40000000;
     lvaddr_t uart_addr = 1UL << 30;
     err = paging_map_user_device(get_current_paging_state(), uart_addr,
                             cap_io, offset, OMAP44XX_MAP_L4_PER_UART3_SIZE,
                             VREGION_FLAGS_READ_WRITE_NOCACHE);
     
-    debug_printf("Done.\n");
+    debug_printf("cap_io mapped OK.\n");
 
     if (err_is_fail(err)) {
         debug_printf("Could not map io cap: %s\n", err_getstring(err));
@@ -484,21 +502,14 @@ int main(int argc, char *argv[])
         abort();
     }
 
-    /* LEGACY MILESTONE 3 CODE */
-
     set_uart3_registers(uart_addr);
         
-    // TODO (milestone 3) STEP 2:
-    // get waitset
     struct waitset *ws = get_default_waitset();
     waitset_init(ws);
     
-    // allocate lmp chan
     struct lmp_chan lc;
-
-    // // initialize lmp chan
     lmp_chan_init(&lc);
-   
+  
     /* make local endpoint available -- this was minted in the kernel in a way
      * such that the buffer is directly after the dispatcher struct and the
      * buffer length corresponds DEFAULT_LMP_BUF_WORDS (excluding the kernel 
@@ -510,7 +521,6 @@ int main(int argc, char *argv[])
     struct lmp_endpoint *my_ep;
     lmp_endpoint_setup(0, FIRSTEP_BUFLEN, &my_ep);
     
-
     lc.endpoint = my_ep;
     lc.local_cap = cap_selfep;
     
@@ -530,10 +540,8 @@ int main(int argc, char *argv[])
     
     fst_client = NULL;
 
-    /* END LEGACY MILESTONE 3 CODE */
-
-    // TODO: Milestone 5
-
+    // PROCESS SPAWNING CODE 
+    // TO BE MOVED TO DEDICATED program afterwards.
     debug_printf("Spawning memeater...\n");
     
     struct mem_region *memeater_mr = multiboot_find_module(bi, MEMEATER_NAME);
@@ -553,18 +561,11 @@ int main(int argc, char *argv[])
         debug_printf("Image spawned.\n");
     }    
 
-    // // Copy Init Self Ep to cap_initep
-    // err = cap_copy(cap_initep, cap_selfep);
-    // if (err_is_fail(err)) {
-    //     DEBUG_ERR(err, "init, failed to copy cap_selfep to cap_initep\n");
-    //     abort();
-    // }
-
     // Copy Init's EP to Memeater's CSpace
     struct capref cap_dest;
     cap_dest.cnode = memeater_si.taskcn;
     cap_dest.slot = TASKCN_SLOT_INITEP;
-    err = cap_copy(cap_dest, cap_selfep);
+    err = cap_copy(cap_dest, cap_initep);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "failed to copy init ep to memeater cspace\n");
         abort();
@@ -577,7 +578,6 @@ int main(int argc, char *argv[])
         err_print_calltrace(err);
         exit(-1);
     }
-    debug_printf("control flow back to init\n");
 
     err = spawn_free(&memeater_si);
     if (err_is_fail(err)) {
