@@ -493,7 +493,7 @@ int main(int argc, char *argv[])
     err = paging_map_user_device(get_current_paging_state(), uart_addr,
                             cap_io, offset, OMAP44XX_MAP_L4_PER_UART3_SIZE,
                             VREGION_FLAGS_READ_WRITE_NOCACHE);
-    
+
     debug_printf("cap_io mapped OK.\n");
 
     if (err_is_fail(err)) {

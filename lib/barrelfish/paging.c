@@ -455,7 +455,7 @@ void page_fault_handler(enum exception_type type, int subtype,
                         arch_registers_fpu_state_t *fpuregs)
 {
     lvaddr_t vaddr = (lvaddr_t)addr;
-    
+    debug_printf("page_fault_handler called\n");
     // We assume all structs are less than 1KB, so pagefaults on addrs
     // less than this count as NULL pointer exception
     type = (vaddr < MAX_STRUCT_SIZE) ? EXCEPT_NULL
@@ -465,24 +465,22 @@ void page_fault_handler(enum exception_type type, int subtype,
     // Handle non-pagefault exceptions
     switch(type){
         case EXCEPT_NULL:
-            // TODO print
-            exit(-1);
+            debug_printf("Hit null pointer!\n");
+            abort();
         case EXCEPT_BREAKPOINT:
         case EXCEPT_SINGLESTEP:
-            // TODO stuff
+            debug_printf("Debugging control\n");
             return;
         case EXCEPT_OTHER:
-            // TODO print
-            exit(-1);
+            debug_printf("Other exception...\n");
+            abort();
         default:;
     }
-        
+    
     // Check if addr is in buddy allocation tree and throw error if not
     if (!buddy_check_addr(current.root, (lvaddr_t)addr)) {
         debug_printf("Did not find address 0x%08x!\n", (lvaddr_t)addr);
-        // buddy_dealloc(current.root, 0);
-        // TODO print
-        exit(-1);
+        abort();        
     }
     
     /* Otherwise we need to allocate. If we're init, we do it directly,
@@ -500,21 +498,23 @@ void page_fault_handler(enum exception_type type, int subtype,
     } else {
         size_t req_bits = log2ceil(req_size);
         size_t ret_bits;
+        debug_printf("calling aos_rpc_get_ram_cap...\n");
         err = aos_rpc_get_ram_cap(current.rpc, req_bits, &frame_cap, &ret_bits);
+        debug_printf("returned\n");
         ret_size = (1UL << ret_bits);
     }
     
     if (err != SYS_ERR_OK){
         debug_printf("Could not allocate frame for addr 0x%08x: %s\n",
                      addr, err_getstring(err));
-        exit(-1);
+        abort();
     }
 
     if (ret_size != req_size){
         debug_printf("Tried to allocate %d bytes for addr 0x%08x\
             but could only allocate %d.\n",
                      req_size, addr, ret_size);
-        exit(-1);
+        abort();
     }
      
     // Allocate L1 and L2 entries, if needed, and insert frame cap
@@ -579,7 +579,7 @@ errval_t paging_init(void)
     const char *prog = disp_name();
     bool is_init = strlen(prog) == 4 && strncmp(obj, prog, 4) == 0;
     
-    lvaddr_t start_addr = is_init ? 0 : (1UL<<30);
+    lvaddr_t start_addr = is_init ? 0 : (1UL<<29);
     
     set_current_paging_state(&current);
     paging_init_state(&current, start_addr, l1_cap);
