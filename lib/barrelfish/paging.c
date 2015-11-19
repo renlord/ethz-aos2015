@@ -306,9 +306,8 @@ static errval_t allocate_pt(struct paging_state *st, lvaddr_t addr,
                             size_t bytes, int flags, bool align)
 {
     errval_t err = SYS_ERR_OK;
-
+    
     // Relevant pagetable slots
-    debug_printf("address passed in: 0x%08x\n", addr);
     cslot_t l1_slot = ARM_L1_USER_OFFSET(addr);
 
     uint32_t l1_entries =
@@ -363,14 +362,15 @@ static errval_t allocate_pt(struct paging_state *st, lvaddr_t addr,
         l2_entries = MIN(l2_entries, ARM_L2_USER_ENTRIES - l2_slot);
 
         // TODO remove
-#if 1
+#if 0
+        debug_printf("disp name: %s\n", st->check);
         debug_printf("st: 0x%08x\n", st);
-        debug_printf("frame_cap.cnode: 0x%08x\n", frame_cap.cnode);
         debug_printf("l1_slot: %d\n", l1_slot);
         debug_printf("l2_slot: %d\n", l2_slot);
         debug_printf("l2_slot_aligned: %d\n", l2_slot_aligned);
         debug_printf("pages: %d\n", pages);
         debug_printf("l2_entries: %d\n\n", l2_entries);
+        debug_printf("align: %d\n\n", align);
 #endif
         // Allocate and insert l2-capability
         struct capref *l2_cap = &(st->l2_caps[l1_slot]);
@@ -494,8 +494,8 @@ void page_fault_handler(enum exception_type type, int subtype,
    
     const char *obj = "init";
     const char *prog = disp_name();
-
-    if(strlen(prog) == 4 && strncmp(obj, prog, 4) == 0){
+    bool is_init = strlen(prog) == 4 && strncmp(obj, prog, 4) == 0;
+    if(is_init){
         err = frame_alloc(&frame_cap, req_size, &ret_size);
     } else {
         size_t req_bits = log2ceil(req_size);
@@ -539,7 +539,13 @@ errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
     st->root->max_size = (1UL << 31); // TODO subtract stack size
     st->root->addr = 0;
     
-    buddy_alloc(st, st->root, V_OFFSET);
+    const char *name = disp_name();
+    for(uint8_t i = 0; i < 9; i++){
+        st->check[i] = name[i];
+    }
+    st->check[9] = '\0';
+    
+    buddy_alloc(st, st->root, MAX(V_OFFSET, start_vaddr-1));
         
     return SYS_ERR_OK;
 }
@@ -547,7 +553,8 @@ errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
 
 errval_t paging_init(void)
 {
-    debug_printf("paging_init\n");
+    debug_printf("paging_init with current: 0x%08x\n", &current);
+    debug_printf("created by: %s\n", current.check);
     // TODO: initialize self-paging handler
     
     
@@ -568,8 +575,14 @@ errval_t paging_init(void)
         .slot = 0, 
     };
 
+    const char *obj = "init";
+    const char *prog = disp_name();
+    bool is_init = strlen(prog) == 4 && strncmp(obj, prog, 4) == 0;
+    
+    lvaddr_t start_addr = is_init ? 0 : (1UL<<30);
+    
     set_current_paging_state(&current);
-    paging_init_state(&current, 0, l1_cap);
+    paging_init_state(&current, start_addr, l1_cap);
     
     return SYS_ERR_OK;
 }

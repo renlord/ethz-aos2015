@@ -65,6 +65,7 @@ struct paging_state {
     
     struct capref l1_cap;
     struct capref l2_caps[ARM_L1_USER_ENTRIES];
+    char check[10];
     // struct capref frame_caps[NO_OF_FRAMES];
     // struct capref *next_frame;
     // struct capref guard_cap;
