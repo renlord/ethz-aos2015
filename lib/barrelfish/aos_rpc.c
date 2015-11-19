@@ -14,6 +14,8 @@
 
 #include <barrelfish/aos_rpc.h>
 #include <barrelfish/paging.h>
+#include <barrelfish/barrelfish.h>
+#include <barrelfish/cspace.h>
 
 #define FIRSTEP_BUFLEN 20u
 #define MIN(a,b) \
@@ -167,7 +169,7 @@ errval_t aos_rpc_send_string(struct aos_rpc *rpc, const char *string)
 
 errval_t aos_rpc_get_ram_cap(struct aos_rpc *rpc, size_t req_bits,
                              struct capref *dest, size_t *ret_bits)
-{    
+{   
     // Allocate receive slot
     errval_t err = lmp_chan_alloc_recv_slot(&rpc->lc);
     if (err_is_fail(err)){
@@ -420,6 +422,8 @@ errval_t aos_rpc_init(struct aos_rpc *rpc)
     }
     
     // Request pid from init
+    debug_printf("fucks up here\n");
+    // for some reason, could not see that initep is attached to init's dispatcher? 
     err = lmp_chan_send1(&(rpc->lc), LMP_SEND_FLAGS_DEFAULT,
                         rpc->lc.local_cap, REQUEST_CHAN);
     if (err_is_fail(err)) {

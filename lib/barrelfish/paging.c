@@ -686,9 +686,10 @@ errval_t paging_dealloc(struct paging_state *st, void *buf)
 errval_t paging_map_frame_attr(struct paging_state *st, void **buf,
                                size_t bytes, struct capref frame,
                                int flags, void *arg1, void *arg2)
-{   
+{
+#if 0   
     debug_printf("paging_map_frame_attr called\n");
-
+#endif
     bytes = ROUND_UP(bytes, BASE_PAGE_SIZE*ENTRIES_PER_FRAME);
     *((lvaddr_t*)buf) = buddy_alloc(st, st->root, bytes);
     if(*buf == (void*)-1) {
@@ -706,9 +707,10 @@ errval_t paging_map_frame_attr(struct paging_state *st, void **buf,
 errval_t paging_map_fixed_attr(struct paging_state *st, lvaddr_t vaddr,
         struct capref frame, size_t bytes, int flags)
 {
+#if 0
     debug_printf("paging_map_fixed_attr called\n");
+#endif
     errval_t err = allocate_pt(st, vaddr, frame, 0, bytes, flags, false);
-
     if (err_is_fail(err)){
         debug_printf("Could not map fixed attribute: %s", err_getstring(err));
         err_push(err, LIB_ERR_MALLOC_FAIL);

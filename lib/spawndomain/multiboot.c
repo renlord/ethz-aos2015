@@ -157,7 +157,7 @@ const char *multiboot_module_rawstring(struct mem_region *region)
             DEBUG_ERR(err, "paging_map failed");
 	    return NULL;
         }
-#if 1
+#if 0
         printf("Mapped multiboot_strings at %p\n", multiboot_strings);
         for (int i = 0; i < 256; i++) {
             if ((i & 15) == 0) printf("%04x  ", i);

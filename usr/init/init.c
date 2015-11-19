@@ -447,79 +447,88 @@ int main(int argc, char *argv[])
         abort();
     }
     
-    // int *int_buf = (int *)malloc(1000);
-    // for (uint32_t i = 0; i < 1000; i++) {
-    //     int_buf[i] = 1;
-    // }
-    // debug_printf("Mem stuff done\n");
+    int *int_buf = (int *)malloc(1000);
+    for (uint32_t i = 0; i < 1000; i++) {
+        int_buf[i] = 1;
+    }
+    debug_printf("Mem stuff done\n");
 
     // TODO (milestone 4): Implement a system to manage the device memory
     // that's referenced by the capability in TASKCN_SLOT_IO in the task
     // cnode. Additionally, export the functionality of that system to other
     // domains by implementing the rpc call `aos_rpc_get_dev_cap()'.
-    // debug_printf("Initialized dev memory management\n");
+    debug_printf("Initialized dev memory management\n");
+
+    // Create our endpoint to self
+    err = cap_retype(cap_selfep, cap_dispatcher, ObjType_EndPoint, 0);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "failed to create our endpoint to self\n");
+        abort();
+    }
+
+    debug_printf("Init Endpoint created\n");
         
-    // debug_printf("Allocating cap_io\n");
-
+    debug_printf("Allocating cap_io\n");
     
-    // size_t offset = OMAP44XX_MAP_L4_PER_UART3 - 0x40000000;
-    // lvaddr_t uart_addr = 1UL << 30;
-    // err = paging_map_user_device(get_current_paging_state(), uart_addr,
-    //                         cap_io, offset, OMAP44XX_MAP_L4_PER_UART3_SIZE,
-    //                         VREGION_FLAGS_READ_WRITE_NOCACHE);
+    size_t offset = OMAP44XX_MAP_L4_PER_UART3 - 0x40000000;
+    lvaddr_t uart_addr = 1UL << 30;
+    err = paging_map_user_device(get_current_paging_state(), uart_addr,
+                            cap_io, offset, OMAP44XX_MAP_L4_PER_UART3_SIZE,
+                            VREGION_FLAGS_READ_WRITE_NOCACHE);
     
-    // debug_printf("Done.\n");
+    debug_printf("Done.\n");
 
-    // if (err_is_fail(err)) {
-    //     debug_printf("Could not map io cap: %s\n", err_getstring(err));
-    //     err_print_calltrace(err);
-    //     abort();
-    // }
+    if (err_is_fail(err)) {
+        debug_printf("Could not map io cap: %s\n", err_getstring(err));
+        err_print_calltrace(err);
+        abort();
+    }
 
     /* LEGACY MILESTONE 3 CODE */
 
-    // set_uart3_registers(uart_addr);
+    set_uart3_registers(uart_addr);
         
     // TODO (milestone 3) STEP 2:
     // get waitset
-    // struct waitset *ws = get_default_waitset();
-    // waitset_init(ws);
+    struct waitset *ws = get_default_waitset();
+    waitset_init(ws);
     
     // allocate lmp chan
-    // struct lmp_chan lc;
+    struct lmp_chan lc;
 
     // // initialize lmp chan
-    // lmp_chan_init(&lc);
+    lmp_chan_init(&lc);
    
-    // /* make local endpoint available -- this was minted in the kernel in a way
-    //  * such that the buffer is directly after the dispatcher struct and the
-    //  * buffer length corresponds DEFAULT_LMP_BUF_WORDS (excluding the kernel 
-    //  * sentinel word).
-    //  */
+    /* make local endpoint available -- this was minted in the kernel in a way
+     * such that the buffer is directly after the dispatcher struct and the
+     * buffer length corresponds DEFAULT_LMP_BUF_WORDS (excluding the kernel 
+     * sentinel word).
+     */
     
-    // fst_client = (struct client_state *) malloc(sizeof(struct client_state));
+    fst_client = (struct client_state *) malloc(sizeof(struct client_state));
 
-    // struct lmp_endpoint *my_ep;
-    // lmp_endpoint_setup(0, FIRSTEP_BUFLEN, &my_ep);
+    struct lmp_endpoint *my_ep;
+    lmp_endpoint_setup(0, FIRSTEP_BUFLEN, &my_ep);
     
-    // lc.endpoint = my_ep;
-    // lc.local_cap = cap_selfep;
-    
-    // // allocate slot for incoming capability from memeatermultiboot_find_module(bi, name);
-    // err = lmp_chan_alloc_recv_slot(&lc);
-    // if (err_is_fail(err)){
-    //     printf("Could not allocate receive slot!\n");
-    //     exit(-1);
-    // }
 
-    // // register receive handler 
-    // err = lmp_chan_register_recv(&lc, ws, MKCLOSURE(recv_handler, &lc));
-    // if (err_is_fail(err)){
-    //     printf("Could not register receive handler!\n");
-    //     exit(-1);
-    // }
+    lc.endpoint = my_ep;
+    lc.local_cap = cap_selfep;
     
-    // fst_client = NULL;
+    // allocate slot for incoming capability from memeatermultiboot_find_module(bi, name);
+    err = lmp_chan_alloc_recv_slot(&lc);
+    if (err_is_fail(err)){
+        printf("Could not allocate receive slot!\n");
+        exit(-1);
+    }
+
+    // register receive handler 
+    err = lmp_chan_register_recv(&lc, ws, MKCLOSURE(recv_handler, &lc));
+    if (err_is_fail(err)){
+        printf("Could not register receive handler!\n");
+        exit(-1);
+    }
+    
+    fst_client = NULL;
 
     /* END LEGACY MILESTONE 3 CODE */
 
@@ -530,8 +539,8 @@ int main(int argc, char *argv[])
     struct mem_region *memeater_mr = multiboot_find_module(bi, MEMEATER_NAME);
     assert(memeater_mr != NULL);
 
-    struct spawninfo si;
-    err = spawn_load_with_args(&si, memeater_mr,
+    struct spawninfo memeater_si;
+    err = spawn_load_with_args(&memeater_si, memeater_mr,
                                   MEMEATER_NAME, disp_get_core_id(),
                                   argv, argv);
 
@@ -544,12 +553,36 @@ int main(int argc, char *argv[])
         debug_printf("Image spawned.\n");
     }    
 
-    err = spawn_run(&si);
+    // // Copy Init Self Ep to cap_initep
+    // err = cap_copy(cap_initep, cap_selfep);
+    // if (err_is_fail(err)) {
+    //     DEBUG_ERR(err, "init, failed to copy cap_selfep to cap_initep\n");
+    //     abort();
+    // }
+
+    // Copy Init's EP to Memeater's CSpace
+    struct capref cap_dest;
+    cap_dest.cnode = memeater_si.taskcn;
+    cap_dest.slot = TASKCN_SLOT_INITEP;
+    err = cap_copy(cap_dest, cap_selfep);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "failed to copy init ep to memeater cspace\n");
+        abort();
+    }
+
+    err = spawn_run(&memeater_si);
     if (err_is_fail(err)) {
         debug_printf("Failed spawn image: %s\n",
             err_getstring(err));
         err_print_calltrace(err);
         exit(-1);
+    }
+    debug_printf("control flow back to init\n");
+
+    err = spawn_free(&memeater_si);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "failed to free memeater domain from init memory\n");
+        abort();
     }
     
     
