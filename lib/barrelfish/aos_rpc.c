@@ -181,7 +181,7 @@ errval_t aos_rpc_get_ram_cap(struct aos_rpc *rpc, size_t req_bits,
     
     // Request frame cap from init
     err = lmp_chan_send2(&rpc->lc, LMP_SEND_FLAGS_DEFAULT,
-                         rpc->lc.local_cap, REQUEST_FRAME_CAP,
+                         NULL_CAP, REQUEST_FRAME_CAP,
                          req_bits); // TODO transfer error code
     
     if (err_is_fail(err)) {
@@ -218,7 +218,7 @@ errval_t aos_rpc_get_dev_cap(struct aos_rpc *rpc, lpaddr_t paddr,
 
     // Send request to init
     err = lmp_chan_send3(&rpc->lc, LMP_SEND_FLAGS_DEFAULT,
-                         rpc->lc.local_cap, REQUEST_DEV_CAP, paddr,
+                         NULL_CAP, REQUEST_DEV_CAP, paddr,
                          length);
     
     if (err_is_fail(err)) {

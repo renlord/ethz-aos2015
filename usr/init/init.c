@@ -23,7 +23,6 @@
 #include <barrelfish/sys_debug.h>
 #include <barrelfish/sys_debug.h>
 #include <omap44xx_map.h>
-#include "../../lib/spawndomain/arch.h"
 
 
 #define MAX_CLIENTS 50
@@ -102,9 +101,10 @@ void recv_handler(void *lc_in)
     struct capref remote_cap = NULL_CAP;
     struct lmp_chan *lc = (struct lmp_chan *)lc_in;
     struct lmp_recv_msg msg = LMP_RECV_MSG_INIT;
+    
 
-    // Retrieve msg
     errval_t err = lmp_chan_recv(lc, &msg, &remote_cap);
+
     if (err_is_fail(err)) {
         debug_printf("Could not retrieve message: %s.\n",
             err_getstring(err));
@@ -119,17 +119,6 @@ void recv_handler(void *lc_in)
         return;
     }
 
-    // TODO: destroy current receive struct? or reuse?
-
-    
-    // Allocate receive struct right away for next msg
-    err = lmp_chan_alloc_recv_slot(lc);
-    if (err_is_fail(err)) {
-        debug_printf("Could not allocate recv slot: %s.\n",
-            err_getstring(err));
-        err_print_calltrace(err);
-        return;
-    }
     
     // Re-register
     lmp_chan_register_recv(lc, get_default_waitset(),
@@ -208,6 +197,17 @@ void recv_handler(void *lc_in)
                 return;
             }
 
+
+            // Allocate receive struct right away for next msg
+            err = lmp_chan_alloc_recv_slot(lc);
+            if (err_is_fail(err)) {
+                debug_printf("Could not allocate recv slot: %s.\n",
+                    err_getstring(err));
+                err_print_calltrace(err);
+                return;
+            }
+    
+
             debug_printf("first lmp msg OK!\n");
             
             break;
@@ -252,11 +252,6 @@ void recv_handler(void *lc_in)
         case REQUEST_FRAME_CAP:
         {
 
-            if (capref_is_null(remote_cap)) {
-                debug_printf("Received endpoint cap was null.\n");
-                return;
-            }
-    
             size_t req_bits = msg.buf.words[1];
             size_t req_bytes = (1UL << req_bits);
             struct capref dest = NULL_CAP;
@@ -306,23 +301,6 @@ void recv_handler(void *lc_in)
         
         case REQUEST_DEV_CAP:
         {
-            if (capref_is_null(remote_cap)) {
-                debug_printf("Received endpoint cap was null.\n");
-                return;
-            }
-            
-            // struct capref src = cap_io;
-            // for (uint32_t i = 0; i < 600; i++){
-            //     struct capref copy;
-            //     err = devframe_type(&copy, src, 30);
-            //     if (err_is_fail(err)) {
-            //         debug_printf("Could not copy capref: %s\n", err_getstring(err));
-            //         err_print_calltrace(err);
-            //         return;
-            //     }
-            //     src = copy;
-            // }
-
             err = lmp_chan_send1(lc, LMP_SEND_FLAGS_DEFAULT, cap_io, 
                 REQUEST_DEV_CAP);
 
@@ -337,17 +315,11 @@ void recv_handler(void *lc_in)
 
         case SERIAL_PUT_CHAR:
         {
-            // if (capref_is_null(remote_cap)) {
-            //     debug_printf("Received endpoint cap was null.\n");
-            //     return;
-            // }
-
             if (msg.buf.msglen != 2) {
                 debug_printf("invalid message size for serial put char!");
                 return;
             }
 
-            //debug_printf("putting char ----> %c\n", msg.buf.words[1]);
             serial_put_char((char *) &msg.buf.words[1]);
 
             break;
@@ -355,11 +327,6 @@ void recv_handler(void *lc_in)
 
         case SERIAL_GET_CHAR:
         {
-            // if (capref_is_null(remote_cap)) {
-            //     debug_printf("Received endpoint cap was null.\n");
-            //     return;
-            // }
-
             char c;
             serial_get_char(&c);
             err = lmp_chan_send2(lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
