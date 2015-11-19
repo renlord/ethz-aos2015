@@ -40,6 +40,7 @@
 #define FIRSTEP_BUFLEN          21u
 
 #define MEMEATER_NAME "armv7/sbin/memeater"
+#define BLINK_NAME "armv7/sbin/blink"
 
 struct bootinfo *bi;
 static coreid_t my_core_id;
@@ -511,12 +512,12 @@ int main(int argc, char *argv[])
     // TO BE MOVED TO DEDICATED program afterwards.
     debug_printf("Spawning memeater...\n");
     
-    struct mem_region *memeater_mr = multiboot_find_module(bi, MEMEATER_NAME);
+    struct mem_region *memeater_mr = multiboot_find_module(bi, BLINK_NAME);
     assert(memeater_mr != NULL);
 
     struct spawninfo memeater_si;
     err = spawn_load_with_args(&memeater_si, memeater_mr,
-                                  MEMEATER_NAME, disp_get_core_id(),
+                                  BLINK_NAME, disp_get_core_id(),
                                   argv, argv);
 
     if (err_is_fail(err)) {
