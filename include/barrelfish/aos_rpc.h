@@ -22,13 +22,18 @@
 #include <barrelfish/lmp_endpoints.h>
 #include <barrelfish/debug.h>
 
+#define AOS_RPC_MSGBUF_LEN 256 
+
 enum rpc_code {
     REQUEST_CHAN,
     SEND_TEXT,
     REQUEST_FRAME_CAP,
     REQUEST_DEV_CAP,
     SERIAL_PUT_CHAR,
-    SERIAL_GET_CHAR
+    SERIAL_GET_CHAR,
+    PROCESS_SPAWN,
+    PROCESS_GET_NAME,
+    PROCESS_GET_ALL_PIDS
 };
 
 enum lock_code {
@@ -44,8 +49,11 @@ struct aos_rpc {
     struct lmp_chan lc; // lmp channel
     struct capref return_cap; 
     size_t ret_bits;
-    char msg_buf[9];
+    uint32_t msg_buf[AOS_RPC_MSGBUF_LEN];
+    size_t char_count;
+    bool wait_event;
 }local_rpc;
+
 
 /**
  * \brief send a string over the given channel

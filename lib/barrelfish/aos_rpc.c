@@ -23,6 +23,7 @@
      __typeof__ (b) _b = (b); \
      _a < _b ? _a : _b; })
 
+static void clean_aos_rpc_msgbuf(struct aos_rpc *rpc);
 
 static void recv_handler(void *rpc_void);
 static void recv_handler(void *rpc_void) 
@@ -61,10 +62,17 @@ static void recv_handler(void *rpc_void)
         
         case SEND_TEXT:
         {
-            size_t buf_size = (uint32_t) msg.buf.words[1];
-            memcpy(rpc->msg_buf, (char*)msg.buf.words[2], buf_size);
-            rpc->msg_buf[buf_size] = '\0';
-            debug_printf("Received text: %s\n", rpc->msg_buf);
+            for(uint8_t i = 1; i < 9; i++){
+                 rpc->msg_buf[rpc->char_count] = msg.buf.words[i];
+                 rpc->char_count++;
+                 
+                 if (msg.buf.words[i] == '\0') {
+                    debug_printf("Text msg received: %s\n", rpc->msg_buf);
+                    rpc->char_count = 0;
+                    break;
+                }
+            }
+
             break;
         }
         
@@ -105,11 +113,41 @@ static void recv_handler(void *rpc_void)
                 rpc->return_cap = NULL_CAP;
                 return;
             }   
-
-            //memcpy(rpc->msg_buf, (char*)msg.buf.words[1], 1);
-            //rpc->msg_buf[1] = '\0';
             memcpy(&rpc->msg_buf, (char *) &msg.buf.words[1], 1);
+            // empty buffer
+            memset(msg.buf.words, '\0', 256);
+            break;
+        }
 
+        case PROCESS_SPAWN:
+        {
+            if (msg.buf.msglen != 2){
+                debug_printf("Bad msg for PROCESS_SPAWN.\n");
+                rpc->return_cap = NULL_CAP;
+                return;
+            }   
+
+            // expecting a pid to be returned and success/failure
+            rpc->msg_buf[0] = msg.buf.words[1];
+            if (msg.buf.words[1] == true) {
+                rpc->msg_buf[1] = msg.buf.words[2];
+            }
+
+            break;
+        }
+
+        case PROCESS_GET_NAME:
+        {
+            // if this event is triggered, check the buffer for the full
+            // text.
+            rpc->wait_event = false;
+            break;
+        }
+
+        case PROCESS_GET_ALL_PIDS:
+        {
+            // get number of pids
+            rpc->msg_buf[0] = msg.buf.words[1];
             break;
         }
 
@@ -246,12 +284,12 @@ errval_t aos_rpc_get_dev_cap(struct aos_rpc *rpc, lpaddr_t paddr,
     
     uint64_t start = (uint64_t) (paddr - 0x40000000);
     
-    err = paging_map_user_device(get_current_paging_state(), (lvaddr_t) va, rpc->return_cap, 
-            start, length, VREGION_FLAGS_READ_WRITE);
+    err = paging_map_user_device(get_current_paging_state(), (lvaddr_t) va, 
+        rpc->return_cap, start, length, VREGION_FLAGS_READ_WRITE);
 
     if (err_is_fail(err)) {
-        debug_printf("failed to map memory device to local virtual memory. %s\n", 
-                err_getstring(err));
+        debug_printf("failed to map memory device to local virtual"
+            " memory. %s\n", err_getstring(err));
         err_print_calltrace(err);
     }
 
@@ -269,7 +307,8 @@ errval_t aos_rpc_serial_getchar(struct aos_rpc *chan, char *retc)
 
     errval_t err;
 
-    err = lmp_chan_send1(&lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, SERIAL_GET_CHAR);
+    err = lmp_chan_send1(&lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
+        SERIAL_GET_CHAR);
 
     if (err_is_fail(err)) {
         debug_printf("failed to get serial input from init. %s\n", 
@@ -293,16 +332,13 @@ errval_t aos_rpc_serial_putchar(struct aos_rpc *chan, char c)
     // TODO (milestone 4): implement functionality to send a character to the
     // serial port.
     struct lmp_chan lc = chan->lc;
-
     errval_t err;
     
-    err = lmp_chan_send2(&lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, SERIAL_PUT_CHAR, c);
-
+    err = lmp_chan_send2(&lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
+        SERIAL_PUT_CHAR, c);
     if (err_is_fail(err)) {
         return err;
     } 
-
-
 
     return SYS_ERR_OK;
 }
@@ -311,6 +347,31 @@ errval_t aos_rpc_process_spawn(struct aos_rpc *chan, char *name,
                                domainid_t *newpid)
 {
     // TODO (milestone 5): implement spawn new process rpc
+    struct lmp_chan lc = chan->lc; 
+    errval_t err;
+
+    err = aos_rpc_send_string(chan, name);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "fail to send process name to init.\n");
+        return err;
+    }
+    err = lmp_chan_send1(&lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
+        PROCESS_SPAWN);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "fail to send PROCESS_SPAWN event to init.\n");
+        return err;
+    }
+
+    event_dispatch(get_default_waitset());
+
+    if (chan->msg_buf[0] == true) {
+        *newpid = chan->msg_buf[1];
+    } else {
+        debug_printf("spawn failed.\n");
+    }
+
+    clean_aos_rpc_msgbuf(chan);
+
     return SYS_ERR_OK;
 }
 
@@ -319,6 +380,25 @@ errval_t aos_rpc_process_get_name(struct aos_rpc *chan, domainid_t pid,
 {
     // TODO (milestone 5): implement name lookup for process given a process
     // id
+    struct lmp_chan lc = chan->lc; 
+    errval_t err;
+
+    err = lmp_chan_send2(&lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
+        PROCESS_GET_NAME, pid);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "fail to send PROCESS_GET_NAME event to init.\n");
+        return err;
+    }
+
+    chan->wait_event = true;
+    while (chan->wait_event) {
+        event_dispatch(get_default_waitset());
+    }
+
+    *name = (char *) chan->msg_buf;
+
+    clean_aos_rpc_msgbuf(chan);
+
     return SYS_ERR_OK;
 }
 
@@ -326,6 +406,31 @@ errval_t aos_rpc_process_get_all_pids(struct aos_rpc *chan,
                                       domainid_t **pids, size_t *pid_count)
 {
     // TODO (milestone 5): implement process id discovery
+
+    struct lmp_chan lc = chan->lc; 
+    errval_t err;
+
+    err = lmp_chan_send1(&lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
+        PROCESS_GET_ALL_PIDS);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "fail to send PROCESS_GET_ALL_PIDS event to init.\n");
+        return err;
+    }
+
+    // 1. get pid_count
+    event_dispatch(get_default_waitset());
+    *pid_count = chan->msg_buf[0];
+    clean_aos_rpc_msgbuf(chan);
+
+    *pids = (domainid_t *) malloc(*pid_count * sizeof(domainid_t));
+
+    // 2. for each pid, we dispatch event.
+    for (size_t i = 0; i < *pid_count; i++) {
+        event_dispatch(get_default_waitset());
+        *pids[i] = chan->msg_buf[0];
+        clean_aos_rpc_msgbuf(chan);
+    }
+
     return SYS_ERR_OK;
 }
 
@@ -387,6 +492,8 @@ errval_t aos_rpc_init(struct aos_rpc *rpc)
 
     // Initialize LMP channel
     lmp_chan_init(&(rpc->lc));
+
+    rpc->char_count = 0;
     
     // Setup endpoint and allocate associated capability
     struct capref ep_cap;
@@ -443,4 +550,9 @@ errval_t aos_rpc_init(struct aos_rpc *rpc)
     event_dispatch(get_default_waitset());
 
     return SYS_ERR_OK;
+}
+
+static void clean_aos_rpc_msgbuf(struct aos_rpc *rpc)
+{
+    memset(rpc->msg_buf, '\0', AOS_RPC_MSGBUF_LEN);
 }

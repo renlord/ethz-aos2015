@@ -46,11 +46,19 @@ struct bootinfo *bi;
 static coreid_t my_core_id;
 
 static struct client_state *fst_client;
+static struct process *fst_process;
     
 static volatile uint32_t *uart3_thr = NULL;
 static volatile uint32_t *uart3_rhr = NULL;
 static volatile uint32_t *uart3_fcr = NULL;
 static volatile uint32_t *uart3_lsr = NULL;
+
+static errval_t spawn(const char *name, domainid_t *pid);
+static errval_t get_all_pids(struct lmp_chan *lc);
+static const char *get_pid_name(domainid_t pid);
+static size_t get_pids_count(void);
+static errval_t reply_string(struct lmp_chan *lc, const char *string);
+
 
 struct client_state {
     struct client_state *next;
@@ -58,6 +66,12 @@ struct client_state {
     size_t alloced;
     char mailbox[500];
     size_t char_count;
+};
+
+struct process {
+    domainid_t pid;
+    const char *name;
+    struct process *next;
 };
 
 struct serial_write_lock {
@@ -73,8 +87,6 @@ struct serial_read_lock {
 //static struct serial_write_lock write_lock;
 //static struct serial_read_lock read_lock;
 
-
-errval_t serial_put_char(const char *c);
 errval_t serial_put_char(const char *c) 
 {
     //debug_printf("serial put char ----> %c\n\n", *c);
@@ -85,7 +97,6 @@ errval_t serial_put_char(const char *c)
     return SYS_ERR_OK;
 }
 
-errval_t serial_get_char(char *c);
 errval_t serial_get_char(char *c) 
 {
     *uart3_fcr &= ~1; // write 0 to bit 0
@@ -96,7 +107,6 @@ errval_t serial_get_char(char *c)
     return SYS_ERR_OK;
 }
 
-void recv_handler(void *lc_in);
 void recv_handler(void *lc_in)
 {
     struct capref remote_cap = NULL_CAP;
@@ -114,7 +124,7 @@ void recv_handler(void *lc_in)
 
     // Our protocol requires that there is a procedure code
     // at a bare minimum
-    if (msg.buf.msglen == 0){
+    if (msg.buf.msglen == 0) {
         debug_printf("Bad msg for init.\n");
         return;
     }
@@ -229,7 +239,6 @@ void recv_handler(void *lc_in)
                     return;
                 }
             }
-            
     
             for(uint8_t i = 1; i < 9; i++){
                  cs->mailbox[cs->char_count] = msg.buf.words[i];
@@ -337,10 +346,6 @@ void recv_handler(void *lc_in)
 
         case SERIAL_PUT_CHAR:
         {
-            // if (capref_is_null(remote_cap)) {
-            //     debug_printf("Received endpoint cap was null.\n");
-            //     return;
-            // }
 
             if (msg.buf.msglen != 2) {
                 debug_printf("invalid message size for serial put char!");
@@ -355,11 +360,6 @@ void recv_handler(void *lc_in)
 
         case SERIAL_GET_CHAR:
         {
-            // if (capref_is_null(remote_cap)) {
-            //     debug_printf("Received endpoint cap was null.\n");
-            //     return;
-            // }
-
             char c;
             serial_get_char(&c);
             err = lmp_chan_send2(lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
@@ -374,6 +374,114 @@ void recv_handler(void *lc_in)
             break;
         }
 
+        case PROCESS_SPAWN:
+        {
+            // 1. client sends name of application to cs->mailbox via 
+            // SEND_TEXT.
+
+            // 2. client indicates that name transfer is complete, we check
+            // mailbox for the name of the application.
+            struct client_state *cs = fst_client;
+            if(cs == NULL) {
+                debug_printf("Frame cap requested but no clients registered"
+                    "yet.\n");
+                return;
+            }
+            
+            while (cs->ep != lc->endpoint){
+                cs = cs->next;
+                if(cs == NULL) {
+                    debug_printf("Could not find client in list\n");
+                    return;
+                }
+            }
+
+            char *app_name = cs->mailbox;
+
+            // reset mailbox
+            memset(cs->mailbox, '\0', 500);
+            cs->char_count = 0;
+
+            // sanity checks
+            assert(app_name != NULL);
+            assert(strlen(app_name) > 1);
+
+            domainid_t pid;
+            err = spawn(app_name, &pid);
+            // 3. we inform client if app spawn is successful or not.
+            if (err_is_fail(err)) {
+                err = lmp_chan_send2(lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
+                    PROCESS_SPAWN, false);
+                DEBUG_ERR(err, "failed to spawn process from SHELL.\n");
+                err_print_calltrace(err);
+                return;
+            } else {
+                err = lmp_chan_send3(lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
+                    PROCESS_SPAWN, true, pid);
+                err_print_calltrace(err);
+                return;
+            }
+
+            if (err_is_fail(err)) {
+                DEBUG_ERR(err, "failed to reply SPAWN_PROCESS event.\n");
+                err_print_calltrace(err);
+                return;
+            }
+            break;
+        }
+
+        case PROCESS_GET_NAME: 
+        {
+            if (msg.buf.msglen != 2) {
+                debug_printf("bad message for PROCESS_GET_NAME, 2 args"
+                    " expected!\n");
+                return;
+            }
+            domainid_t pid = (domainid_t) msg.buf.words[1];
+            const char *name = get_pid_name(pid);
+            err = reply_string(lc, name);
+            if (err_is_fail(err)) {
+                DEBUG_ERR(err, "failed to reply PROCESS_GET_NAME event.\n");
+                err_print_calltrace(err);
+                return;
+            }
+
+            err = lmp_chan_send1(lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
+                    PROCESS_GET_NAME);
+            if (err_is_fail(err)) {
+                DEBUG_ERR(err, "failed to reply PROCESS_GET_NAME event.\n");
+                err_print_calltrace(err);
+                return;
+            }
+
+            break;
+        }
+
+        case PROCESS_GET_ALL_PIDS:
+        {
+            if (msg.buf.msglen != 1) {
+                debug_printf("bad message for PROCESS_GET_NAME, 1 args"
+                    " expected!\n");
+                return;
+            }
+            err = lmp_chan_send2(lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
+                    PROCESS_GET_ALL_PIDS, get_pids_count());
+            if (err_is_fail(err)) {
+                DEBUG_ERR(err, "failed to get pids count.\n");
+                err_print_calltrace(err);
+                return;
+            }
+
+            err = get_all_pids(lc);
+            if (err_is_fail(err)) {
+                DEBUG_ERR(err, "failed to get all pids event.\n");
+                err_print_calltrace(err);
+                return;
+            }
+
+            break;
+        }
+
         default:
         {
             // include LIB_ERR_NOT_IMPLEMENTED? 
@@ -382,7 +490,6 @@ void recv_handler(void *lc_in)
     }    
 }
 
-void set_uart3_registers(lvaddr_t base);
 void set_uart3_registers(lvaddr_t base)
 {
     uart3_thr = (uint32_t *)((uint32_t)base + 0x0000);
@@ -391,7 +498,6 @@ void set_uart3_registers(lvaddr_t base)
     uart3_lsr = (uint32_t *)((uint32_t)base + 0x0014);
 }
 
-void my_print(const char *buf);
 void my_print(const char *buf)
 {
     assert(uart3_lsr && uart3_thr);
@@ -402,7 +508,6 @@ void my_print(const char *buf)
     }
 }
 
-void my_read(void);
 void my_read(void)
 {
     char buf[256];
@@ -423,6 +528,132 @@ void my_read(void)
             i = 0;
         }
     }
+}
+
+static errval_t spawn(const char *name, domainid_t *pid)
+{
+    // concat name with path
+    const char *path = "armv7/sbin/"; // size 11
+    char concat_name[strlen(name) + 11];
+
+    strcat(concat_name, path);
+    strcat(concat_name, name);
+
+    struct mem_region *mr = multiboot_find_module(bi, concat_name);
+    assert(mr != NULL);
+
+    struct spawninfo si;
+    errval_t err = spawn_load_with_args(&si, mr, concat_name, disp_get_core_id(),
+            NULL, NULL);
+
+    if (err_is_fail(err)) {
+        debug_printf("Failed spawn image: %s\n", err_getstring(err));
+        err_print_calltrace(err);
+        return err;
+    } 
+
+    *pid = si.domain_id;
+
+    // Copy Init's EP to Memeater's CSpace
+    struct capref cap_dest;
+    cap_dest.cnode = si.taskcn;
+    cap_dest.slot = TASKCN_SLOT_INITEP;
+    err = cap_copy(cap_dest, cap_initep);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "failed to copy init ep to memeater cspace\n");
+        return err;
+    }
+
+    err = spawn_run(&si);
+    if (err_is_fail(err)) {
+        debug_printf("Failed spawn image: %s\n", err_getstring(err));
+        err_print_calltrace(err);
+        return err;
+    }
+
+    err = spawn_free(&si);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "failed to free memeater domain from init memory\n");
+        return err;
+    }
+
+    return SYS_ERR_OK;
+}
+
+static size_t get_pids_count(void) 
+{
+    struct process *temp = fst_process;
+    size_t n = 0;
+    while (temp != NULL) {
+        temp = temp->next;
+        n++;
+    }
+    return n;
+}
+
+static errval_t get_all_pids(struct lmp_chan *lc)
+{
+    struct process *temp = fst_process;
+    while (temp != NULL) {
+        errval_t err = lmp_chan_send2(lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
+                PROCESS_GET_ALL_PIDS, temp->pid);
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "fail to send one of many pids.\n");
+            err_print_calltrace(err);
+            return err;
+        }
+    }
+
+    return SYS_ERR_OK;
+}
+
+static errval_t reply_string(struct lmp_chan *lc, const char *string)
+{
+    size_t slen = strlen(string) + 1; // adjust for null-character
+    size_t rlen = 0;
+    char buf[8];
+    errval_t err;
+    
+    while (rlen < slen) {
+        size_t chunk_size = ((slen-rlen) < 8) ? (slen-rlen) : 8;
+        memcpy(buf, string, chunk_size);
+        err = lmp_chan_send(lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP,
+                            9, SEND_TEXT, buf[0], buf[1], buf[2],
+                            buf[3], buf[4], buf[5], buf[6], buf[7]);
+
+        if (err_is_fail(err)) {
+            return err;
+        } 
+
+        string = &(string[8]);
+        rlen += 8;
+
+    }
+
+    return SYS_ERR_OK;
+}
+
+static const char *get_pid_name(domainid_t pid) 
+{
+    struct process *temp = fst_process;
+    while (temp != NULL) {
+        if (pid == temp->pid) {
+            return temp->name;
+        }
+    }
+    return NULL;
+}
+
+static void register_process(struct spawninfo *si, const char *name)
+{
+    struct process *temp = fst_process;
+    while (temp->next != NULL) {
+        temp = temp->next;
+    }
+    temp->next = (struct process *) malloc(sizeof(struct process));
+    temp->next->pid = si->domain_id;
+    temp->next->name = name;
+    temp->next->next = NULL;
 }
 
 int main(int argc, char *argv[])
@@ -517,6 +748,12 @@ int main(int argc, char *argv[])
      */
     
     fst_client = (struct client_state *) malloc(sizeof(struct client_state));
+    fst_process = (struct process *) malloc(sizeof(struct process));
+
+    // Register INIT as first process!!!
+    fst_process->pid = disp_get_domain_id();
+    fst_process->name = "init";
+    fst_process->next = NULL;
 
     struct lmp_endpoint *my_ep;
     lmp_endpoint_setup(0, FIRSTEP_BUFLEN, &my_ep);
@@ -540,6 +777,9 @@ int main(int argc, char *argv[])
     
     fst_client = NULL;
 
+    // Technically, we would just like to spawn a shell process and that's it.
+    // TODO
+
     // PROCESS SPAWNING CODE 
     // TO BE MOVED TO DEDICATED program afterwards.
     debug_printf("Spawning memeater...\n");
@@ -560,6 +800,8 @@ int main(int argc, char *argv[])
     } else {
         debug_printf("Image spawned.\n");
     }    
+
+    register_process(&memeater_si, "memeater");
 
     // Copy Init's EP to Memeater's CSpace
     struct capref cap_dest;

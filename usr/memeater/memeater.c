@@ -238,9 +238,9 @@ int main(int argc, char *argv[])
     //cli_demo();
     //debug_printf("Done\n\n");
 
-    debug_printf("Performing small chump test...\n");
-    perform_array_test(SMALL_CHUMP_SIZE, SMALL_CHUMP_ARRAY_SIZE);
-    debug_printf("Done\n\n");
+    // debug_printf("Performing small chump test...\n");
+    // perform_array_test(SMALL_CHUMP_SIZE, SMALL_CHUMP_ARRAY_SIZE);
+    // debug_printf("Done\n\n");
 
     debug_printf("Getting IO Cap from Init...\n");
     errval_t err;
@@ -254,6 +254,21 @@ int main(int argc, char *argv[])
         err_print_calltrace(err);
         exit(-1);
     }
+
+    debug_printf("Test get all pids...\n");
+    domainid_t *arr; 
+    size_t pid_count;
+    err = aos_rpc_process_get_all_pids(&local_rpc, &arr, &pid_count);
+    if (err_is_fail(err)) {
+        debug_printf("Failed to get all pids from init... %s\n");
+        err_print_calltrace(err);
+        exit(-1);
+    }
+
+    for (size_t i = 0; i < pid_count; i++) {
+        debug_printf("pid: %d\n", arr[i]);
+    }
+    debug_printf("Done.\n");
 
     debug_printf("Running Command Line Interface Demo...\n");
     cli_demo();
