@@ -158,12 +158,15 @@ static void recv_handler(void *rpc_void)
         }
     }
     
-    err = lmp_chan_alloc_recv_slot(&rpc->lc);
-    if (err_is_fail(err)){
-        debug_printf("Could not allocate receive slot: %s.\n",
-            err_getstring(err));
-        err_print_calltrace(err);
-        return;
+    // Re-allocate
+    if (!capref_is_null(remote_cap)){
+        err = lmp_chan_alloc_recv_slot(&rpc->lc);
+        if (err_is_fail(err)){
+            debug_printf("Could not allocate receive slot: %s.\n",
+                err_getstring(err));
+            err_print_calltrace(err);
+            return;
+        }
     }
     
     // Register our receive handler
@@ -219,7 +222,7 @@ errval_t aos_rpc_get_ram_cap(struct aos_rpc *rpc, size_t req_bits,
     
     // Request frame cap from init
     err = lmp_chan_send2(&rpc->lc, LMP_SEND_FLAGS_DEFAULT,
-                         rpc->lc.local_cap, REQUEST_FRAME_CAP,
+                         NULL_CAP, REQUEST_FRAME_CAP,
                          req_bits); // TODO transfer error code
     
     if (err_is_fail(err)) {
@@ -256,7 +259,7 @@ errval_t aos_rpc_get_dev_cap(struct aos_rpc *rpc, lpaddr_t paddr,
 
     // Send request to init
     err = lmp_chan_send3(&rpc->lc, LMP_SEND_FLAGS_DEFAULT,
-                         rpc->lc.local_cap, REQUEST_DEV_CAP, paddr,
+                         NULL_CAP, REQUEST_DEV_CAP, paddr,
                          length);
     
     if (err_is_fail(err)) {
@@ -274,24 +277,24 @@ errval_t aos_rpc_get_dev_cap(struct aos_rpc *rpc, lpaddr_t paddr,
 
     // allocate space in Virtual Memory for the Device Memory
     // void *va = //malloc(length);
-    void *va = (void *)(1UL<<30);
+    // void *va = (void *)(1UL<<30);
 
-    // we then compute the slot offset from the base page table using the virtual address
-    // provided.
+    // // we then compute the slot offset from the base page table using the virtual address
+    // // provided.
 
-    // assert that the requested device physical address is greater than 0x40000000
-    assert(paddr > 0x40000000); 
+    // // assert that the requested device physical address is greater than 0x40000000
+    // assert(paddr > 0x40000000); 
     
-    uint64_t start = (uint64_t) (paddr - 0x40000000);
+    // uint64_t start = (uint64_t) (paddr - 0x40000000);
     
-    err = paging_map_user_device(get_current_paging_state(), (lvaddr_t) va, 
-        rpc->return_cap, start, length, VREGION_FLAGS_READ_WRITE);
+    // err = paging_map_user_device(get_current_paging_state(), (lvaddr_t) va, 
+    //     rpc->return_cap, start, length, VREGION_FLAGS_READ_WRITE);
 
-    if (err_is_fail(err)) {
-        debug_printf("failed to map memory device to local virtual"
-            " memory. %s\n", err_getstring(err));
-        err_print_calltrace(err);
-    }
+    // if (err_is_fail(err)) {
+    //     debug_printf("failed to map memory device to local virtual"
+    //         " memory. %s\n", err_getstring(err));
+    //     err_print_calltrace(err);
+    // }
 
     *retcap = rpc->return_cap;
     *retlen = rpc->ret_bits;

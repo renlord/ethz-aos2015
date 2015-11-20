@@ -224,7 +224,11 @@ int main(int argc, char *argv[])
     debug_printf("memeater started\n");
 
     debug_printf("Performing String Test...\n");
-    aos_rpc_send_string(&local_rpc, " much longer text --  much longer text --  much longer text --  much longer text --  much longer text -- much longer text --  much longer text --  much longer text --  much longer text --  much longer text -- ");
+    for(uint32_t i = 0; i < 150; i++){
+        char b[4];
+        sprintf(b, "long long long long long string no %d", i);
+        aos_rpc_send_string(&local_rpc, b);
+    }
     debug_printf("Done\n\n");
 
     //debug_printf("Performing Userland scanf test...\n");

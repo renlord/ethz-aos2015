@@ -23,7 +23,6 @@
 #include <barrelfish/sys_debug.h>
 #include <barrelfish/sys_debug.h>
 #include <omap44xx_map.h>
-#include "../../lib/spawndomain/arch.h"
 
 
 #define MAX_CLIENTS 50
@@ -41,6 +40,7 @@
 #define FIRSTEP_BUFLEN          21u
 
 #define MEMEATER_NAME "armv7/sbin/memeater"
+#define BLINK_NAME "armv7/sbin/blink"
 
 struct bootinfo *bi;
 static coreid_t my_core_id;
@@ -112,9 +112,10 @@ void recv_handler(void *lc_in)
     struct capref remote_cap = NULL_CAP;
     struct lmp_chan *lc = (struct lmp_chan *)lc_in;
     struct lmp_recv_msg msg = LMP_RECV_MSG_INIT;
+    
 
-    // Retrieve msg
     errval_t err = lmp_chan_recv(lc, &msg, &remote_cap);
+
     if (err_is_fail(err)) {
         debug_printf("Could not retrieve message: %s.\n",
             err_getstring(err));
@@ -129,17 +130,6 @@ void recv_handler(void *lc_in)
         return;
     }
 
-    // TODO: destroy current receive struct? or reuse?
-
-    
-    // Allocate receive struct right away for next msg
-    err = lmp_chan_alloc_recv_slot(lc);
-    if (err_is_fail(err)) {
-        debug_printf("Could not allocate recv slot: %s.\n",
-            err_getstring(err));
-        err_print_calltrace(err);
-        return;
-    }
     
     // Re-register
     lmp_chan_register_recv(lc, get_default_waitset(),
@@ -218,6 +208,17 @@ void recv_handler(void *lc_in)
                 return;
             }
 
+
+            // Allocate receive struct right away for next msg
+            err = lmp_chan_alloc_recv_slot(lc);
+            if (err_is_fail(err)) {
+                debug_printf("Could not allocate recv slot: %s.\n",
+                    err_getstring(err));
+                err_print_calltrace(err);
+                return;
+            }
+    
+
             debug_printf("first lmp msg OK!\n");
             
             break;
@@ -261,11 +262,6 @@ void recv_handler(void *lc_in)
         case REQUEST_FRAME_CAP:
         {
 
-            if (capref_is_null(remote_cap)) {
-                debug_printf("Received endpoint cap was null.\n");
-                return;
-            }
-    
             size_t req_bits = msg.buf.words[1];
             size_t req_bytes = (1UL << req_bits);
             struct capref dest = NULL_CAP;
@@ -315,23 +311,6 @@ void recv_handler(void *lc_in)
         
         case REQUEST_DEV_CAP:
         {
-            if (capref_is_null(remote_cap)) {
-                debug_printf("Received endpoint cap was null.\n");
-                return;
-            }
-            
-            // struct capref src = cap_io;
-            // for (uint32_t i = 0; i < 600; i++){
-            //     struct capref copy;
-            //     err = devframe_type(&copy, src, 30);
-            //     if (err_is_fail(err)) {
-            //         debug_printf("Could not copy capref: %s\n", err_getstring(err));
-            //         err_print_calltrace(err);
-            //         return;
-            //     }
-            //     src = copy;
-            // }
-
             err = lmp_chan_send1(lc, LMP_SEND_FLAGS_DEFAULT, cap_io, 
                 REQUEST_DEV_CAP);
 
@@ -346,13 +325,11 @@ void recv_handler(void *lc_in)
 
         case SERIAL_PUT_CHAR:
         {
-
             if (msg.buf.msglen != 2) {
                 debug_printf("invalid message size for serial put char!");
                 return;
             }
 
-            //debug_printf("putting char ----> %c\n", msg.buf.words[1]);
             serial_put_char((char *) &msg.buf.words[1]);
 
             break;
@@ -397,10 +374,7 @@ void recv_handler(void *lc_in)
             }
 
             char *app_name = cs->mailbox;
-
-            // reset mailbox
-            memset(cs->mailbox, '\0', 500);
-            cs->char_count = 0;
+            //debug_printf("received app name: %s\n", app_name);
 
             // sanity checks
             assert(app_name != NULL);
@@ -408,6 +382,11 @@ void recv_handler(void *lc_in)
 
             domainid_t pid;
             err = spawn(app_name, &pid);
+
+            // reset mailbox
+            memset(cs->mailbox, '\0', 500);
+            cs->char_count = 0;
+
             // 3. we inform client if app spawn is successful or not.
             if (err_is_fail(err)) {
                 err = lmp_chan_send2(lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
@@ -533,12 +512,13 @@ void my_read(void)
 static errval_t spawn(const char *name, domainid_t *pid)
 {
     // concat name with path
-    const char *path = "armv7/sbin/"; // size 11
-    char concat_name[strlen(name) + 11];
+    const char *path = "armv7/sbin/\0"; // size 11
+    char concat_name[strlen(name) + 12];
 
     strcat(concat_name, path);
     strcat(concat_name, name);
 
+    debug_printf("strcmp results: %d\n", strcmp(concat_name, BLINK_NAME));
     struct mem_region *mr = multiboot_find_module(bi, concat_name);
     assert(mr != NULL);
 
@@ -789,7 +769,7 @@ int main(int argc, char *argv[])
 
     struct spawninfo memeater_si;
     err = spawn_load_with_args(&memeater_si, memeater_mr,
-                                  MEMEATER_NAME, disp_get_core_id(),
+                                  BLINK_NAME, disp_get_core_id(),
                                   argv, argv);
 
     if (err_is_fail(err)) {
