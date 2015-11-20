@@ -398,7 +398,10 @@ errval_t aos_rpc_process_get_name(struct aos_rpc *chan, domainid_t pid,
         event_dispatch(get_default_waitset());
     }
 
-    *name = (char *) chan->msg_buf;
+    char *proc_name = (char *) malloc(strlen((char *)chan->msg_buf) * 
+                        sizeof(char));
+    memcpy(proc_name, chan->msg_buf, strlen((char *)chan->msg_buf));
+    *name = proc_name;
 
     clean_aos_rpc_msgbuf(chan);
 

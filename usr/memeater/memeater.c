@@ -223,13 +223,13 @@ int main(int argc, char *argv[])
 {
     debug_printf("memeater started\n");
 
-    debug_printf("Performing String Test...\n");
-    for(uint32_t i = 0; i < 150; i++){
-        char b[4];
-        sprintf(b, "long long long long long string no %d", i);
-        aos_rpc_send_string(&local_rpc, b);
-    }
-    debug_printf("Done\n\n");
+    // debug_printf("Performing String Test...\n");
+    // for(uint32_t i = 0; i < 150; i++){
+    //     char b[4];
+    //     sprintf(b, "long long long long long string no %d", i);
+    //     aos_rpc_send_string(&local_rpc, b);
+    // }
+    // debug_printf("Done\n\n");
 
     //debug_printf("Performing Userland scanf test...\n");
     //char buf[256];
@@ -259,20 +259,41 @@ int main(int argc, char *argv[])
         exit(-1);
     }
 
-    debug_printf("Test get all pids...\n");
-    domainid_t *arr; 
-    size_t pid_count;
-    err = aos_rpc_process_get_all_pids(&local_rpc, &arr, &pid_count);
+    debug_printf("test process_get_name.\n");
+    char *name;
+    err = aos_rpc_process_get_name(&local_rpc, disp_get_domain_id(), &name);
     if (err_is_fail(err)) {
-        debug_printf("Failed to get all pids from init... %s\n");
+        debug_printf("Failed to spawn from memeater... %s\n");
         err_print_calltrace(err);
         exit(-1);
     }
+    debug_printf("name of process: %s\n", name);
+    debug_printf("done\n\n");
 
-    for (size_t i = 0; i < pid_count; i++) {
-        debug_printf("pid: %d\n", arr[i]);
+    debug_printf("spawn blink from memeater.\n");
+    domainid_t pid;
+    err = aos_rpc_process_spawn(&local_rpc, "blink\0", &pid);
+    if (err_is_fail(err)) {
+        debug_printf("Failed to spawn from memeater... %s\n");
+        err_print_calltrace(err);
+        exit(-1);
     }
-    debug_printf("Done.\n");
+    debug_printf("done\n\n");
+
+    // debug_printf("Test get all pids...\n");
+    // domainid_t *arr; 
+    // size_t pid_count;
+    // err = aos_rpc_process_get_all_pids(&local_rpc, &arr, &pid_count);
+    // if (err_is_fail(err)) {
+    //     debug_printf("Failed to get all pids from init... %s\n");
+    //     err_print_calltrace(err);
+    //     exit(-1);
+    // }
+
+    // for (size_t i = 0; i < pid_count; i++) {
+    //     debug_printf("pid: %d\n", arr[i]);
+    // }
+    // debug_printf("Done.\n");
 
     debug_printf("Running Command Line Interface Demo...\n");
     cli_demo();
