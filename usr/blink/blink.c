@@ -54,13 +54,10 @@ void set_gpio1_registers(lvaddr_t base)
 
 int main(int argc, char *argv[])
 {
-    debug_printf("blink started\n");
-    
+    return 0;
     int32_t no_of_blinks = (argc > 1) ? atoi(argv[1]) : 5;
     float blink_rate = (float) (argc > 2) ? atoi(argv[2]) : 1;
     
-    
-    debug_printf("Getting IO Cap from Init...\n");
     errval_t err;
     struct capref retcap;
     size_t retlen;
@@ -81,9 +78,6 @@ int main(int argc, char *argv[])
                             
     set_gpio1_registers(uart_addr);
     
-    debug_printf("cap_io mapped OK.\n");
-
-    debug_printf("start blinking, G!\n");
     while(no_of_blinks-- > 0) {
         blink_me(true);
         stall(1./blink_rate);

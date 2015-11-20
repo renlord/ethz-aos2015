@@ -129,7 +129,7 @@ static void scan_line(char *buf)
             err_print_calltrace(err);
             break;
         }
-
+        debug_printf("\nhere...\n");
         if (c == 13) {
             print_line("\r\n");
             break;
@@ -222,7 +222,7 @@ static void cli_demo(void)
 int main(int argc, char *argv[])
 {
     debug_printf("memeater started\n");
-
+    debug_printf("memeaters domain_id: %d\n", disp_get_domain_id());
     // debug_printf("Performing String Test...\n");
     // for(uint32_t i = 0; i < 150; i++){
     //     char b[4];
@@ -259,26 +259,26 @@ int main(int argc, char *argv[])
         exit(-1);
     }
 
-    debug_printf("test process_get_name.\n");
-    char *name;
-    err = aos_rpc_process_get_name(&local_rpc, disp_get_domain_id(), &name);
-    if (err_is_fail(err)) {
-        debug_printf("Failed to spawn from memeater... %s\n");
-        err_print_calltrace(err);
-        exit(-1);
-    }
-    debug_printf("name of process: %s\n", name);
-    debug_printf("done\n\n");
-
-    debug_printf("spawn blink from memeater.\n");
-    domainid_t pid;
-    err = aos_rpc_process_spawn(&local_rpc, "blink\0", &pid);
-    if (err_is_fail(err)) {
-        debug_printf("Failed to spawn from memeater... %s\n");
-        err_print_calltrace(err);
-        exit(-1);
-    }
-    debug_printf("done\n\n");
+    // debug_printf("test process_get_name.\n");
+    // char *name;
+    // err = aos_rpc_process_get_name(&local_rpc, disp_get_domain_id(), &name);
+    // if (err_is_fail(err)) {
+    //     debug_printf("Failed to spawn from memeater... %s\n");
+    //     err_print_calltrace(err);
+    //     exit(-1);
+    // }
+    // debug_printf("name of process: %s\n", name);
+    // debug_printf("done\n\n");
+    //
+    // debug_printf("spawn blink from memeater.\n");
+    // domainid_t pid;
+    // err = aos_rpc_process_spawn(&local_rpc, "blink\0", &pid);
+    // if (err_is_fail(err)) {
+    //     debug_printf("Failed to spawn from memeater... %s\n");
+    //     err_print_calltrace(err);
+    //     exit(-1);
+    // }
+    // debug_printf("done\n\n");
 
     // debug_printf("Test get all pids...\n");
     // domainid_t *arr; 

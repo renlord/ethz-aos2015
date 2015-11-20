@@ -455,7 +455,6 @@ void page_fault_handler(enum exception_type type, int subtype,
                         arch_registers_fpu_state_t *fpuregs)
 {
     lvaddr_t vaddr = (lvaddr_t)addr;
-    debug_printf("page_fault_handler called\n");
     // We assume all structs are less than 1KB, so pagefaults on addrs
     // less than this count as NULL pointer exception
     type = (vaddr < MAX_STRUCT_SIZE) ? EXCEPT_NULL
@@ -498,7 +497,6 @@ void page_fault_handler(enum exception_type type, int subtype,
     } else {
         size_t req_bits = log2ceil(req_size);
         size_t ret_bits;
-        debug_printf("calling aos_rpc_get_ram_cap...\n");
         err = aos_rpc_get_ram_cap(current.rpc, req_bits, &frame_cap, &ret_bits);
         debug_printf("returned\n");
         ret_size = (1UL << ret_bits);

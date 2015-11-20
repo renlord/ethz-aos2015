@@ -72,7 +72,7 @@ static void recv_handler(void *rpc_void)
                     break;
                 }
             }
-
+            
             break;
         }
         
@@ -112,10 +112,10 @@ static void recv_handler(void *rpc_void)
                 debug_printf("Bad msg for SERIAL_GET_CHAR.\n");
                 rpc->return_cap = NULL_CAP;
                 return;
-            }   
+            }
             memcpy(&rpc->msg_buf, (char *) &msg.buf.words[1], 1);
             // empty buffer
-            memset(msg.buf.words, '\0', 256);
+            memset(msg.buf.words, '\0', 256);            
             break;
         }
 
@@ -157,7 +157,7 @@ static void recv_handler(void *rpc_void)
 
         }
     }
-    
+
     // Re-allocate
     if (!capref_is_null(remote_cap)){
         err = lmp_chan_alloc_recv_slot(&rpc->lc);
@@ -323,9 +323,10 @@ errval_t aos_rpc_serial_getchar(struct aos_rpc *chan, char *retc)
     // listen for response from init. When recv_handler returns,
     // character should be in chan->msg_buf[2]
     event_dispatch(get_default_waitset());
-
+    
+    debug_printf("aos_rpc_serial_putchar pre\n");
     *retc = chan->msg_buf[0];
-
+    debug_printf("aos_rpc_serial_putchar post\n");
     return SYS_ERR_OK;
 }
 
@@ -397,11 +398,9 @@ errval_t aos_rpc_process_get_name(struct aos_rpc *chan, domainid_t pid,
     while (chan->wait_event) {
         event_dispatch(get_default_waitset());
     }
-
-    char *proc_name = (char *) malloc(strlen((char *)chan->msg_buf) * 
-                        sizeof(char));
-    memcpy(proc_name, chan->msg_buf, strlen((char *)chan->msg_buf));
-    *name = proc_name;
+    memcpy(chan->process_name, chan->msg_buf,
+        strlen((char *)chan->msg_buf));
+    *name = chan->process_name;
 
     clean_aos_rpc_msgbuf(chan);
 

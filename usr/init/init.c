@@ -136,6 +136,7 @@ void recv_handler(void *lc_in)
         MKCLOSURE(recv_handler, lc_in));
     
     uint32_t code = msg.buf.words[0];
+
     switch(code) {
         
         // Initial request from new clients, causes init to establish
@@ -416,6 +417,7 @@ void recv_handler(void *lc_in)
                     " expected!\n");
                 return;
             }
+            
             domainid_t pid = (domainid_t) msg.buf.words[1];
             const char *name = get_pid_name(pid);
             err = reply_string(lc, name);
@@ -450,14 +452,12 @@ void recv_handler(void *lc_in)
                 err_print_calltrace(err);
                 return;
             }
-
             err = get_all_pids(lc);
             if (err_is_fail(err)) {
                 DEBUG_ERR(err, "failed to get all pids event.\n");
                 err_print_calltrace(err);
                 return;
             }
-
             break;
         }
 
@@ -512,19 +512,27 @@ void my_read(void)
 static errval_t spawn(const char *name, domainid_t *pid)
 {
     // concat name with path
-    const char *path = "armv7/sbin/\0"; // size 11
-    char concat_name[strlen(name) + 12];
+    const char *path = "armv7/sbin/"; // size 11
+    char concat_name[strlen(name) + 11];
 
-    strcat(concat_name, path);
-    strcat(concat_name, name);
+    // strcat(concat_name, path);
+    // strcat(concat_name, name);
 
-    debug_printf("strcmp results: %d\n", strcmp(concat_name, BLINK_NAME));
+    memcpy(concat_name, path, strlen(path));
+    memcpy(&concat_name[strlen(path)], name, strlen(name)+1);
+    
     struct mem_region *mr = multiboot_find_module(bi, concat_name);
     assert(mr != NULL);
 
+    char *argv[1];
+    argv[0] = "";
+    
+    char *envp[1];
+    envp[0] = "";
+    
     struct spawninfo si;
     errval_t err = spawn_load_with_args(&si, mr, concat_name, disp_get_core_id(),
-            NULL, NULL);
+            argv, envp);
 
     if (err_is_fail(err)) {
         debug_printf("Failed spawn image: %s\n", err_getstring(err));
@@ -597,6 +605,7 @@ static errval_t reply_string(struct lmp_chan *lc, const char *string)
     while (rlen < slen) {
         size_t chunk_size = ((slen-rlen) < 8) ? (slen-rlen) : 8;
         memcpy(buf, string, chunk_size);
+        debug_printf("sending %s\n", buf);
         err = lmp_chan_send(lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP,
                             9, SEND_TEXT, buf[0], buf[1], buf[2],
                             buf[3], buf[4], buf[5], buf[6], buf[7]);
@@ -769,8 +778,8 @@ int main(int argc, char *argv[])
 
     struct spawninfo memeater_si;
     err = spawn_load_with_args(&memeater_si, memeater_mr,
-                                  BLINK_NAME, disp_get_core_id(),
-                                  argv, argv);
+                               BLINK_NAME, disp_get_core_id(),
+                               argv, argv);
 
     if (err_is_fail(err)) {
         debug_printf("Failed spawn image: %s\n",
@@ -807,7 +816,7 @@ int main(int argc, char *argv[])
         abort();
     }
     
-    
+    debug_printf("init domain_id: %d\n", disp_get_domain_id());
     debug_printf("Entering dispatch loop\n");
     while(true) {
         event_dispatch(get_default_waitset());

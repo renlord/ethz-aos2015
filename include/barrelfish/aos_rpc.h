@@ -49,9 +49,10 @@ struct aos_rpc {
     struct lmp_chan lc; // lmp channel
     struct capref return_cap; 
     size_t ret_bits;
-    uint32_t msg_buf[AOS_RPC_MSGBUF_LEN];
+    char msg_buf[AOS_RPC_MSGBUF_LEN];
     size_t char_count;
     bool wait_event;
+    char process_name[20];
 }local_rpc;
 
 

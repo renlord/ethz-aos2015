@@ -371,14 +371,12 @@ static void free_thread(struct thread *thread)
 struct thread *thread_create_unrunnable(thread_func_t start_func, void *arg,
                                         size_t stacksize)
 {
-        debug_printf("hello here 2-0\n");
         // allocate stack
         assert((stacksize % sizeof(uintptr_t)) == 0);
         void *stack = malloc(stacksize);
         if (stack == NULL) {
             return NULL;
         }
-        debug_printf("hello here 2-0-0\n");
 
     // allocate space for TCB + initial TLS data
     // no mutex as it may deadlock: see comment for thread_slabs_spinlock
@@ -391,7 +389,6 @@ struct thread *thread_create_unrunnable(thread_func_t start_func, void *arg,
         free(stack);
         return NULL;
     }
-    debug_printf("hello here 2-1\n");
     // split space into TLS data followed by TCB
     // XXX: this layout is specific to the x86 ABIs! once other (saner)
     // architectures support TLS, we'll need to break out the logic.
@@ -419,7 +416,6 @@ struct thread *thread_create_unrunnable(thread_func_t start_func, void *arg,
         dtv->dtv[0] = tls_data;
         newthread->tls_dtv = dtv;
     }
-    debug_printf("hello here 2-2\n");
     // init stack
     newthread->stack = stack;
     newthread->stack_top = (char *)stack + stacksize;
@@ -429,7 +425,6 @@ struct thread *thread_create_unrunnable(thread_func_t start_func, void *arg,
         - (lvaddr_t)newthread->stack_top % STACK_ALIGNMENT;
 
     paging_init_onthread(newthread);
-    debug_printf("hello here 2-3\n");
     // init registers
     registers_set_initial(&newthread->regs, newthread, (lvaddr_t)thread_entry,
                           (lvaddr_t)newthread->stack_top,
@@ -450,7 +445,6 @@ struct thread *thread_create_unrunnable(thread_func_t start_func, void *arg,
 struct thread *thread_create_varstack(thread_func_t start_func, void *arg,
                                       size_t stacksize)
 {
-    debug_printf("hello here 2\n");
     struct thread *newthread = thread_create_unrunnable(start_func, arg, stacksize);
     if (newthread) {
         // enqueue on runq
@@ -460,7 +454,6 @@ struct thread *thread_create_varstack(thread_func_t start_func, void *arg,
         thread_enqueue(newthread, &disp_gen->runq);
         disp_enable(handle);
     }
-    debug_printf("hello here 3\n");
     return newthread;
 }
 
@@ -998,7 +991,6 @@ static int bootstrap_thread(struct spawn_domain_params *params)
         exit(EXIT_FAILURE);
         assert(!"exit returned!");
     }
-    debug_printf("hello here\n");
     // Allocate storage region for real threads
     size_t blocksize = sizeof(struct thread) + tls_block_total_len;
     size_t raw_blocksize = blocksize + sizeof(struct slab_head) + sizeof(uintptr_t);
@@ -1008,7 +1000,6 @@ static int bootstrap_thread(struct spawn_domain_params *params)
         USER_PANIC_ERR(err, "paging_region_init for thread region failed\n");
     }
     slab_init(&thread_slabs, blocksize, refill_thread_slabs);
-    debug_printf("hello here 1 \n");
 #if MILESTONE <= 3
     // we aren't prepared to run real threads yet
     main_thread(params);
