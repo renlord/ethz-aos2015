@@ -40,7 +40,6 @@
 #define FIRSTEP_BUFLEN          21u
 
 #define MEMEATER_NAME "armv7/sbin/memeater"
-#define BLINK_NAME "armv7/sbin/blink"
 
 struct bootinfo *bi;
 static coreid_t my_core_id;
@@ -62,10 +61,12 @@ static errval_t reply_string(struct lmp_chan *lc, const char *string);
 
 struct client_state {
     struct client_state *next;
-    struct lmp_endpoint *ep;
+    struct lmp_chan *lc;
     size_t alloced;
     char mailbox[500];
     size_t char_count;
+    uint32_t send_msg[9];
+    struct capref send_cap;
 };
 
 struct process {
@@ -101,19 +102,58 @@ errval_t serial_get_char(char *c)
 {
     *uart3_fcr &= ~1; // write 0 to bit 0
     *uart3_rhr = 0;
-    while((*uart3_lsr & 1) == 0);
+    uint32_t i = 0;
+    while((*uart3_lsr & 1) == 0){
+        i++;
+        if(i % 1000000 == 0) {
+            // debug_printf("check\n");
+        }
+    }
     memcpy(c, (char *) uart3_rhr, 1);
     serial_put_char((char *) uart3_rhr);
     return SYS_ERR_OK;
 }
 
+void send_handler(void *client_state_in)
+{
+    struct client_state *client_state = (struct client_state*)client_state_in;
+    
+    uint32_t buf[9];
+    for (uint8_t i = 0; i < 9; i++){
+        buf[i] = client_state->send_msg[i];
+        if((char*)buf[i] == '\0'){
+            break;
+        }
+    }
+    
+    struct capref cap = client_state->send_cap;    
+    
+    errval_t err = lmp_chan_send9(client_state->lc, LMP_SEND_FLAGS_DEFAULT, cap, buf[0],
+                                  buf[1], buf[2], buf[3], buf[4],
+                                  buf[5], buf[6], buf[7], buf[8]);
+ 
+    if (err_is_fail(err)){ // TODO check that err is indeed endbuffer full
+        struct event_closure closure = MKCLOSURE(send_handler, client_state_in);
+        err = lmp_chan_register_send(client_state->lc, get_default_waitset(),
+                                     closure);
+        if (err_is_fail(err)) {
+            debug_printf("Could not re-register for sending\n");
+            return;
+        } else {
+            debug_printf("could not send msg, trying again\n");            
+        }
+    } else {
+        debug_printf("succesfully sent to lc 0x%08x", client_state->lc->endpoint);
+    }
+}
+
 void recv_handler(void *lc_in)
 {
+    // debug_printf("receiving on lc 0x%08x\n", lc_in);
     struct capref remote_cap = NULL_CAP;
     struct lmp_chan *lc = (struct lmp_chan *)lc_in;
     struct lmp_recv_msg msg = LMP_RECV_MSG_INIT;
     
-
     errval_t err = lmp_chan_recv(lc, &msg, &remote_cap);
 
     if (err_is_fail(err)) {
@@ -136,6 +176,13 @@ void recv_handler(void *lc_in)
         MKCLOSURE(recv_handler, lc_in));
     
     uint32_t code = msg.buf.words[0];
+
+    struct client_state *cs = fst_client;
+    while (cs != NULL && cs->lc->endpoint != lc->endpoint){
+        cs = cs->next;
+    }
+
+    assert(cs != NULL || code == REQUEST_CHAN);
 
     switch(code) {
         
@@ -166,7 +213,7 @@ void recv_handler(void *lc_in)
             new_chan->local_cap = ep_cap;
             new_chan->remote_cap = remote_cap;
             new_chan->endpoint = my_ep;
-
+            debug_printf("init handed out channel 0x%08x\n", new_chan->endpoint);
 
             // Allocate new client state
             struct client_state **cur = &fst_client;
@@ -179,7 +226,7 @@ void recv_handler(void *lc_in)
             struct client_state *new_state =
                 (struct client_state *) malloc(sizeof(struct client_state));
             new_state->next = NULL;
-            new_state->ep = my_ep;
+            new_state->lc = new_chan;
             new_state->alloced = 0;
             new_state->char_count = 0;
             *cur = new_state;
@@ -201,11 +248,23 @@ void recv_handler(void *lc_in)
             }
 
             // Send new endpoint cap back to client
-            err = lmp_chan_send1(new_chan, LMP_SEND_FLAGS_DEFAULT, ep_cap,
-                REQUEST_CHAN);
+            
+            // err = lmp_chan_send1(new_chan, LMP_SEND_FLAGS_DEFAULT, ep_cap,
+            //     REQUEST_CHAN);
+            //
+            // if (err_is_fail(err)) {
+            //     debug_printf("Failed to send new endpoint.\n");
+            //     err_print_calltrace(err);
+            //     return;
+            // }
+            
+            (*cur)->send_msg[0] = REQUEST_CHAN;
+            (*cur)->send_msg[1] = '\0';
+            (*cur)->send_cap = ep_cap;
+            err = lmp_chan_register_send(lc_in, get_default_waitset(),
+                                         MKCLOSURE(send_handler, *cur));
             if (err_is_fail(err)) {
-                debug_printf("Failed to send new endpoint.\n");
-                err_print_calltrace(err);
+                debug_printf("Could not re-register for sending\n");
                 return;
             }
 
@@ -227,20 +286,20 @@ void recv_handler(void *lc_in)
         
         case SEND_TEXT:
         {
-            struct client_state *cs = fst_client;
-            if(cs == NULL) {
-                debug_printf("Frame cap requested but no clients registered"
-                    "yet.\n");
-                return;
-            }
-            
-            while (cs->ep != lc->endpoint){
-                cs = cs->next;
-                if(cs == NULL) {
-                    debug_printf("Could not find client in list\n");
-                    return;
-                }
-            }
+            // struct client_state *cs = fst_client;
+            // if(cs == NULL) {
+            //     debug_printf("Frame cap requested but no clients registered"
+            //         "yet.\n");
+            //     return;
+            // }
+            //
+            // while (cs->lc->endpoint != lc->endpoint){
+            //     cs = cs->next;
+            //     if(cs == NULL) {
+            //         debug_printf("Could not find client in list\n");
+            //         return;
+            //     }
+            // }
     
             for(uint8_t i = 1; i < 9; i++){
                  cs->mailbox[cs->char_count] = msg.buf.words[i];
@@ -256,6 +315,42 @@ void recv_handler(void *lc_in)
                     break;
                 }
             }
+            
+            if (strncmp(cs->mailbox, "special", 7) == 0){
+                // char new_buf[8];
+                // memcpy(new_buf, &cs->mailbox[7], 11);
+                // new_buf[7] = '\0';
+                
+                cs->send_msg[0] = SEND_TEXT;
+                for (uint32_t i = 0; i < 7; i++){
+                    cs->send_msg[i+1] = (uint32_t)cs->mailbox[i];
+                    if(cs->mailbox[i] == '\0'){
+                        break;
+                    }
+                }
+                
+                cs->send_cap = NULL_CAP;
+                err = lmp_chan_register_send(lc_in, get_default_waitset(),
+                                             MKCLOSURE(send_handler, cs));
+                if (err_is_fail(err)) {
+                    debug_printf("Could not register for sending\n");
+                    return;
+                }
+                
+                //
+                // err = lmp_chan_send(lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP,
+                //               9, SEND_TEXT, new_buf[0], new_buf[1], new_buf[2],
+                //               new_buf[3], new_buf[4], new_buf[5], new_buf[6], new_buf[7]);
+                // if(err_is_fail(err)){
+                //     debug_printf("could not send msg to 0x%08x because: %s\n",
+                //         lc_in, err_getstring(err));
+                //     err_print_calltrace(err);
+                //     return;
+                // }
+                // debug_printf("sending: %s\n", new_buf);
+            } // else {
+ //                debug_printf("strncmp: %d\n", strncmp(cs->mailbox, "special", 7));
+ //            }
         }
         break;
         
@@ -267,20 +362,20 @@ void recv_handler(void *lc_in)
             size_t req_bytes = (1UL << req_bits);
             struct capref dest = NULL_CAP;
             
-            struct client_state *cs = fst_client;
-            if(cs == NULL) {
-                debug_printf("Frame cap requested but no clients registered"
-                    "yet.\n");
-                return;
-            }
-            
-            while (cs->ep != lc->endpoint){
-                cs = cs->next;
-                if(cs == NULL) {
-                    debug_printf("Could not find client in list\n");
-                    return;
-                }
-            }
+            // struct client_state *cs = fst_client;
+            // if(cs == NULL) {
+            //     debug_printf("Frame cap requested but no clients registered"
+            //         "yet.\n");
+            //     return;
+            // }
+            //
+            // while (cs->lc->endpoint != lc->endpoint){
+            //     cs = cs->next;
+            //     if(cs == NULL) {
+            //         debug_printf("Could not find client in list\n");
+            //         return;
+            //     }
+            // }
             
             if (cs->alloced + req_bytes >= HARD_LIMIT){
                 debug_printf("Client request exceeds hard limit.\n");
@@ -288,7 +383,7 @@ void recv_handler(void *lc_in)
             }
             
             // Perform the allocation
-            size_t ret_bits, ret_bytes;
+            size_t ret_bytes;
             err = frame_alloc(&dest, req_bytes, &ret_bytes);
             if (err_is_fail(err)){
                 debug_printf("Failed memserv allocation.\n");
@@ -297,29 +392,49 @@ void recv_handler(void *lc_in)
             
             cs->alloced += ret_bytes;
             
-            // Send cap and return bits back to caller
-            ret_bits = log2ceil(ret_bytes);
-            err = lmp_chan_send2(lc, LMP_SEND_FLAGS_DEFAULT, dest,
-                REQUEST_FRAME_CAP, ret_bits);
+            
+            cs->send_msg[0] = REQUEST_FRAME_CAP;
+            cs->send_msg[1] = log2ceil(ret_bytes);
+            cs->send_cap = dest;
+            err = lmp_chan_register_send(lc_in, get_default_waitset(),
+                                         MKCLOSURE(send_handler, cs));
             if (err_is_fail(err)) {
-                debug_printf("Could not send msg to init: %s.\n",
-                    err_getstring(err));
-                err_print_calltrace(err);
-                exit(-1);
+                debug_printf("Could not register for sending\n");
+                return;
             }
+            
+            // Send cap and return bits back to caller
+            // ret_bits = log2ceil(ret_bytes);
+            // err = lmp_chan_send2(lc, LMP_SEND_FLAGS_DEFAULT, dest,
+            //     REQUEST_FRAME_CAP, ret_bits);
+            // if (err_is_fail(err)) {
+            //     debug_printf("Could not send msg to init: %s.\n",
+            //         err_getstring(err));
+            //     err_print_calltrace(err);
+            //     exit(-1);
+            // }
             break;
         }
         
         case REQUEST_DEV_CAP:
         {
-            err = lmp_chan_send1(lc, LMP_SEND_FLAGS_DEFAULT, cap_io, 
-                REQUEST_DEV_CAP);
-
+            cs->send_msg[0] = REQUEST_DEV_CAP;
+            cs->send_cap = cap_io;
+            err = lmp_chan_register_send(lc_in, get_default_waitset(),
+                                         MKCLOSURE(send_handler, cs));
             if (err_is_fail(err)) {
-                debug_printf("failed to send copy of cap io. %s\n", err);
-                err_push(err, LIB_ERR_LMP_CHAN_SEND);
+                debug_printf("Could not register for sending\n");
                 return;
             }
+            
+            // err = lmp_chan_send1(lc, LMP_SEND_FLAGS_DEFAULT, cap_io,
+            //     REQUEST_DEV_CAP);
+            //
+            // if (err_is_fail(err)) {
+            //     debug_printf("failed to send copy of cap io. %s\n", err);
+            //     err_push(err, LIB_ERR_LMP_CHAN_SEND);
+            //     return;
+            // }
 
             break;
         }
@@ -340,14 +455,28 @@ void recv_handler(void *lc_in)
         {
             char c;
             serial_get_char(&c);
-            err = lmp_chan_send2(lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
-                SERIAL_GET_CHAR, c);
+            debug_printf("init sending char for SERIAL_GET_CHAR\n");
 
+
+            cs->send_msg[0] = SERIAL_GET_CHAR;
+            cs->send_msg[1] = c;
+            cs->send_cap = NULL_CAP;
+            err = lmp_chan_register_send(lc_in, get_default_waitset(),
+                                         MKCLOSURE(send_handler, cs));
+            
             if (err_is_fail(err)) {
-                debug_printf("Failed to send serial get char. %s\n", 
-                    err_getstring(err));
-                err_print_calltrace(err);
+                debug_printf("Could not register for sending\n");
+                return;
             }
+            event_dispatch(get_default_waitset());
+            // err = lmp_chan_send2(lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP,
+            //     SERIAL_GET_CHAR, c);
+            //
+            // if (err_is_fail(err)) {
+            //     debug_printf("Failed to send serial get char. %s\n",
+            //         err_getstring(err));
+            //     err_print_calltrace(err);
+            // }
 
             break;
         }
@@ -359,20 +488,20 @@ void recv_handler(void *lc_in)
 
             // 2. client indicates that name transfer is complete, we check
             // mailbox for the name of the application.
-            struct client_state *cs = fst_client;
-            if(cs == NULL) {
-                debug_printf("Frame cap requested but no clients registered"
-                    "yet.\n");
-                return;
-            }
-            
-            while (cs->ep != lc->endpoint){
-                cs = cs->next;
-                if(cs == NULL) {
-                    debug_printf("Could not find client in list\n");
-                    return;
-                }
-            }
+            // struct client_state *cs = fst_client;
+            // if(cs == NULL) {
+            //     debug_printf("Frame cap requested but no clients registered"
+            //         "yet.\n");
+            //     return;
+            // }
+            //
+            // while (cs->lc->endpoint != lc->endpoint){
+            //     cs = cs->next;
+            //     if(cs == NULL) {
+            //         debug_printf("Could not find client in list\n");
+            //         return;
+            //     }
+            // }
 
             char *app_name = cs->mailbox;
             //debug_printf("received app name: %s\n", app_name);
@@ -736,7 +865,7 @@ int main(int argc, char *argv[])
      * sentinel word).
      */
     
-    fst_client = (struct client_state *) malloc(sizeof(struct client_state));
+    // fst_client = (struct client_state *) malloc(sizeof(struct client_state));
     fst_process = (struct process *) malloc(sizeof(struct process));
 
     // Register INIT as first process!!!
@@ -778,7 +907,7 @@ int main(int argc, char *argv[])
 
     struct spawninfo memeater_si;
     err = spawn_load_with_args(&memeater_si, memeater_mr,
-                               BLINK_NAME, disp_get_core_id(),
+                               MEMEATER_NAME, disp_get_core_id(),
                                argv, argv);
 
     if (err_is_fail(err)) {
@@ -807,7 +936,7 @@ int main(int argc, char *argv[])
         debug_printf("Failed spawn image: %s\n",
             err_getstring(err));
         err_print_calltrace(err);
-        exit(-1);
+        abort();
     }
 
     err = spawn_free(&memeater_si);

@@ -464,7 +464,7 @@ void page_fault_handler(enum exception_type type, int subtype,
     // Handle non-pagefault exceptions
     switch(type){
         case EXCEPT_NULL:
-            debug_printf("Hit null pointer!\n");
+            debug_printf("Hit null pointer at addr 0x%08x!\n", addr);
             abort();
         case EXCEPT_BREAKPOINT:
         case EXCEPT_SINGLESTEP:
@@ -498,7 +498,6 @@ void page_fault_handler(enum exception_type type, int subtype,
         size_t req_bits = log2ceil(req_size);
         size_t ret_bits;
         err = aos_rpc_get_ram_cap(current.rpc, req_bits, &frame_cap, &ret_bits);
-        debug_printf("returned\n");
         ret_size = (1UL << ret_bits);
     }
     

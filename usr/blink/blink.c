@@ -54,7 +54,21 @@ void set_gpio1_registers(lvaddr_t base)
 
 int main(int argc, char *argv[])
 {
+    debug_printf("blink main called, now exiting\n");
+    debug_printf("blinks domain_name: %s\n", disp_name());
+    debug_printf("blinks domain_id: %d\n", disp_get_domain_id());
+    
+    uint32_t i = 0;
+    while(true){
+        if(i++ % 30000000 == 0){
+            aos_rpc_send_string(&local_rpc, "special blink");
+            event_dispatch(get_default_waitset());
+            // debug_printf("blink still alive...\n");
+        }
+    }
+    
     return 0;
+    
     int32_t no_of_blinks = (argc > 1) ? atoi(argv[1]) : 5;
     float blink_rate = (float) (argc > 2) ? atoi(argv[2]) : 1;
     

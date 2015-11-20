@@ -129,7 +129,7 @@ static void scan_line(char *buf)
             err_print_calltrace(err);
             break;
         }
-        debug_printf("\nhere...\n");
+        
         if (c == 13) {
             print_line("\r\n");
             break;
@@ -222,8 +222,9 @@ static void cli_demo(void)
 int main(int argc, char *argv[])
 {
     debug_printf("memeater started\n");
+    debug_printf("memeaters domain_name: %s\n", disp_name());
     debug_printf("memeaters domain_id: %d\n", disp_get_domain_id());
-    // debug_printf("Performing String Test...\n");
+    debug_printf("Performing String Test...\n");
     // for(uint32_t i = 0; i < 150; i++){
     //     char b[4];
     //     sprintf(b, "long long long long long string no %d", i);
@@ -280,6 +281,19 @@ int main(int argc, char *argv[])
     // }
     // debug_printf("done\n\n");
 
+    debug_printf("Running Command Line Interface Demo...\n");
+    cli_demo();
+    debug_printf("Done\n\n");
+
+    
+    uint32_t i = 0;
+    while(true){
+        if(i++ % 30000000 == 0){
+            aos_rpc_send_string(&local_rpc, "special memeater");
+            event_dispatch(get_default_waitset());
+        }
+    }
+    
     // debug_printf("Test get all pids...\n");
     // domainid_t *arr; 
     // size_t pid_count;

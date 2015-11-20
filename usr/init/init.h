@@ -33,6 +33,7 @@ void my_print(const char *buf);
 void my_read(void);
 
 void recv_handler(void *lc_in);
+void send_handler(void *client_state_in);
 
 void set_uart3_registers(lvaddr_t base);
 #endif // INIT_H

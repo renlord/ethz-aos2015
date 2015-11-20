@@ -32,6 +32,8 @@ static void recv_handler(void *rpc_void)
     struct capref remote_cap = NULL_CAP;
     struct lmp_recv_msg msg = LMP_RECV_MSG_INIT;
     errval_t err = lmp_chan_recv(&rpc->lc, &msg, &remote_cap);
+    debug_printf("receive handler invoked with code %d<--------------------------------\n",
+        msg.buf.words[0]);
     
     if (err_is_fail(err)) {
         debug_printf("Could not receive msg from init: %s\n",
@@ -55,7 +57,7 @@ static void recv_handler(void *rpc_void)
                 debug_printf("Received endpoint cap was null.\n");
                 return;
             }
-
+            
             rpc->lc.remote_cap = remote_cap;
             break;
         }
@@ -65,14 +67,15 @@ static void recv_handler(void *rpc_void)
             for(uint8_t i = 1; i < 9; i++){
                  rpc->msg_buf[rpc->char_count] = msg.buf.words[i];
                  rpc->char_count++;
-                 
+
                  if (msg.buf.words[i] == '\0') {
-                    debug_printf("Text msg received: %s\n", rpc->msg_buf);
+                    debug_printf("Text msg received for %s: %s\n",
+                        disp_name(), rpc->msg_buf);
                     rpc->char_count = 0;
                     break;
                 }
             }
-            
+                                    
             break;
         }
         
@@ -108,31 +111,31 @@ static void recv_handler(void *rpc_void)
 
         case SERIAL_GET_CHAR:
         {
+            // debug_printf("recieved SERIAL_GET_CHAR msg\n");
             if (msg.buf.msglen != 2){
-                debug_printf("Bad msg for SERIAL_GET_CHAR.\n");
+                // debug_printf("Bad msg for SERIAL_GET_CHAR.\n");
                 rpc->return_cap = NULL_CAP;
                 return;
             }
             memcpy(&rpc->msg_buf, (char *) &msg.buf.words[1], 1);
-            // empty buffer
-            memset(msg.buf.words, '\0', 256);            
+
             break;
         }
 
         case PROCESS_SPAWN:
         {
-            if (msg.buf.msglen != 2){
+            if (msg.buf.msglen != 3){
                 debug_printf("Bad msg for PROCESS_SPAWN.\n");
                 rpc->return_cap = NULL_CAP;
                 return;
             }   
-
+            
             // expecting a pid to be returned and success/failure
-            rpc->msg_buf[0] = msg.buf.words[1];
+            rpc->msg_buf[0] = (char)msg.buf.words[1];
             if (msg.buf.words[1] == true) {
-                rpc->msg_buf[1] = msg.buf.words[2];
+                rpc->msg_buf[1] = (char)msg.buf.words[2];
             }
-
+            
             break;
         }
 
@@ -159,7 +162,7 @@ static void recv_handler(void *rpc_void)
     }
 
     // Re-allocate
-    if (!capref_is_null(remote_cap)){
+    // if (!capref_is_null(remote_cap)){
         err = lmp_chan_alloc_recv_slot(&rpc->lc);
         if (err_is_fail(err)){
             debug_printf("Could not allocate receive slot: %s.\n",
@@ -167,7 +170,7 @@ static void recv_handler(void *rpc_void)
             err_print_calltrace(err);
             return;
         }
-    }
+    // }
     
     // Register our receive handler
     err = lmp_chan_register_recv(&rpc->lc, get_default_waitset(), 
@@ -277,24 +280,24 @@ errval_t aos_rpc_get_dev_cap(struct aos_rpc *rpc, lpaddr_t paddr,
 
     // allocate space in Virtual Memory for the Device Memory
     // void *va = //malloc(length);
-    // void *va = (void *)(1UL<<30);
-
-    // // we then compute the slot offset from the base page table using the virtual address
-    // // provided.
-
-    // // assert that the requested device physical address is greater than 0x40000000
-    // assert(paddr > 0x40000000); 
-    
-    // uint64_t start = (uint64_t) (paddr - 0x40000000);
-    
-    // err = paging_map_user_device(get_current_paging_state(), (lvaddr_t) va, 
-    //     rpc->return_cap, start, length, VREGION_FLAGS_READ_WRITE);
-
-    // if (err_is_fail(err)) {
-    //     debug_printf("failed to map memory device to local virtual"
-    //         " memory. %s\n", err_getstring(err));
-    //     err_print_calltrace(err);
-    // }
+    void *va = (void *)(1UL<<30);
+ 
+    // we then compute the slot offset from the base page table using the virtual address
+    // provided.
+ 
+    // assert that the requested device physical address is greater than 0x40000000
+    assert(paddr > 0x40000000); 
+     
+    uint64_t start = (uint64_t) (paddr - 0x40000000);
+     
+    err = paging_map_user_device(get_current_paging_state(), (lvaddr_t) va, rpc->return_cap, 
+            start, length, VREGION_FLAGS_READ_WRITE);
+ 
+    if (err_is_fail(err)) {
+        debug_printf("failed to map memory device to local virtual memory. %s\n", 
+                err_getstring(err));
+        err_print_calltrace(err);
+    }
 
     *retcap = rpc->return_cap;
     *retlen = rpc->ret_bits;
@@ -322,11 +325,12 @@ errval_t aos_rpc_serial_getchar(struct aos_rpc *chan, char *retc)
 
     // listen for response from init. When recv_handler returns,
     // character should be in chan->msg_buf[2]
+    debug_printf("Waiting for char from init\n");
     event_dispatch(get_default_waitset());
+    debug_printf("Received for char from init\n");    
     
-    debug_printf("aos_rpc_serial_putchar pre\n");
     *retc = chan->msg_buf[0];
-    debug_printf("aos_rpc_serial_putchar post\n");
+
     return SYS_ERR_OK;
 }
 
@@ -338,8 +342,7 @@ errval_t aos_rpc_serial_putchar(struct aos_rpc *chan, char c)
     struct lmp_chan lc = chan->lc;
     errval_t err;
     
-    err = lmp_chan_send2(&lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
-        SERIAL_PUT_CHAR, c);
+    err = lmp_chan_send2(&lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, SERIAL_PUT_CHAR, c);
     if (err_is_fail(err)) {
         return err;
     } 
@@ -559,5 +562,6 @@ errval_t aos_rpc_init(struct aos_rpc *rpc)
 
 static void clean_aos_rpc_msgbuf(struct aos_rpc *rpc)
 {
+    return; // FIXME delete
     memset(rpc->msg_buf, '\0', AOS_RPC_MSGBUF_LEN);
 }
