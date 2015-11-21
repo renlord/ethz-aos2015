@@ -32,8 +32,6 @@ static void recv_handler(void *rpc_void)
     struct capref remote_cap = NULL_CAP;
     struct lmp_recv_msg msg = LMP_RECV_MSG_INIT;
     errval_t err = lmp_chan_recv(&rpc->lc, &msg, &remote_cap);
-    debug_printf("receive handler invoked with code %d<--------------------------------\n",
-        msg.buf.words[0]);
     
     if (err_is_fail(err)) {
         debug_printf("Could not receive msg from init: %s\n",
@@ -111,25 +109,12 @@ static void recv_handler(void *rpc_void)
 
         case SERIAL_GET_CHAR:
         {
-            // debug_printf("recieved SERIAL_GET_CHAR msg\n");
-            if (msg.buf.msglen != 2){
-                // debug_printf("Bad msg for SERIAL_GET_CHAR.\n");
-                rpc->return_cap = NULL_CAP;
-                return;
-            }
-            memcpy(&rpc->msg_buf, (char *) &msg.buf.words[1], 1);
-
+            rpc->msg_buf[0] = msg.buf.words[1];
             break;
         }
 
         case PROCESS_SPAWN:
         {
-            if (msg.buf.msglen != 3){
-                debug_printf("Bad msg for PROCESS_SPAWN.\n");
-                rpc->return_cap = NULL_CAP;
-                return;
-            }   
-            
             // expecting a pid to be returned and success/failure
             rpc->msg_buf[0] = (char)msg.buf.words[1];
             if (msg.buf.words[1] == true) {
@@ -162,7 +147,7 @@ static void recv_handler(void *rpc_void)
     }
 
     // Re-allocate
-    // if (!capref_is_null(remote_cap)){
+    if (!capref_is_null(remote_cap)){
         err = lmp_chan_alloc_recv_slot(&rpc->lc);
         if (err_is_fail(err)){
             debug_printf("Could not allocate receive slot: %s.\n",
@@ -170,7 +155,7 @@ static void recv_handler(void *rpc_void)
             err_print_calltrace(err);
             return;
         }
-    // }
+    }
     
     // Register our receive handler
     err = lmp_chan_register_recv(&rpc->lc, get_default_waitset(), 
@@ -325,9 +310,7 @@ errval_t aos_rpc_serial_getchar(struct aos_rpc *chan, char *retc)
 
     // listen for response from init. When recv_handler returns,
     // character should be in chan->msg_buf[2]
-    debug_printf("Waiting for char from init\n");
     event_dispatch(get_default_waitset());
-    debug_printf("Received for char from init\n");    
     
     *retc = chan->msg_buf[0];
 

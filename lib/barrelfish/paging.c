@@ -362,7 +362,10 @@ static errval_t allocate_pt(struct paging_state *st, lvaddr_t addr,
         l2_entries = MIN(l2_entries, ARM_L2_USER_ENTRIES - l2_slot);
 
         // TODO remove
+
 #if 0
+        debug_printf("proxy MEM(0x%08x,%d,%d,%d,%d)",
+            next_addr, next_bytes, l1_slot, l2_slot_aligned, l2_entries);
         debug_printf("disp name: %s\n", st->check);
         debug_printf("st: 0x%08x\n", st);
         debug_printf("l1_slot: %d\n", l1_slot);

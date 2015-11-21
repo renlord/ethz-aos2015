@@ -281,17 +281,14 @@ int main(int argc, char *argv[])
     // }
     // debug_printf("done\n\n");
 
-    debug_printf("Running Command Line Interface Demo...\n");
-    cli_demo();
-    debug_printf("Done\n\n");
+    // debug_printf("Running Command Line Interface Demo...\n");
+    // cli_demo();
+    // debug_printf("Done\n\n");
 
     
-    uint32_t i = 0;
-    while(true){
-        if(i++ % 30000000 == 0){
-            aos_rpc_send_string(&local_rpc, "special memeater");
-            event_dispatch(get_default_waitset());
-        }
+    for(uint32_t i = 0; i < 100; i++){
+        aos_rpc_send_string(&local_rpc, "ping");
+        event_dispatch(get_default_waitset());
     }
     
     // debug_printf("Test get all pids...\n");
