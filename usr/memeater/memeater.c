@@ -222,8 +222,7 @@ static void cli_demo(void)
 int main(int argc, char *argv[])
 {
     debug_printf("memeater started\n");
-    debug_printf("memeaters domain_name: %s\n", disp_name());
-    debug_printf("memeaters domain_id: %d\n", disp_get_domain_id());
+    debug_printf("%s, pid: %u\n", disp_name(), disp_get_domain_id());
     debug_printf("Performing String Test...\n");
     // for(uint32_t i = 0; i < 150; i++){
     //     char b[4];
@@ -247,18 +246,18 @@ int main(int argc, char *argv[])
     // perform_array_test(SMALL_CHUMP_SIZE, SMALL_CHUMP_ARRAY_SIZE);
     // debug_printf("Done\n\n");
 
-    debug_printf("Getting IO Cap from Init...\n");
-    errval_t err;
-    struct capref retcap;
-    size_t retlen;
-    err = aos_rpc_get_dev_cap(&local_rpc, OMAP44XX_MAP_L4_PER_UART3,
-        OMAP44XX_MAP_L4_PER_UART3_SIZE, &retcap, &retlen);
+    // debug_printf("Getting IO Cap from Init...\n");
+    // errval_t err;
+    // struct capref retcap;
+    // size_t retlen;
+    // err = aos_rpc_get_dev_cap(&local_rpc, OMAP44XX_MAP_L4_PER_UART3,
+    //     OMAP44XX_MAP_L4_PER_UART3_SIZE, &retcap, &retlen);
 
-    if (err_is_fail(err)) {
-        debug_printf("Failed to get IO Cap from init... %s\n");
-        err_print_calltrace(err);
-        exit(-1);
-    }
+    // if (err_is_fail(err)) {
+    //     debug_printf("Failed to get IO Cap from init... %s\n");
+    //     err_print_calltrace(err);
+    //     exit(-1);
+    // }
 
     // debug_printf("test process_get_name.\n");
     // char *name;
@@ -286,10 +285,10 @@ int main(int argc, char *argv[])
     // debug_printf("Done\n\n");
 
     
-    for(uint32_t i = 0; i < 100; i++){
-        aos_rpc_send_string(&local_rpc, "ping");
-        event_dispatch(get_default_waitset());
-    }
+    // for(uint32_t i = 0; i < 100; i++){
+    //     aos_rpc_send_string(&local_rpc, "ping");
+    //     event_dispatch(get_default_waitset());
+    // }
     
     // debug_printf("Test get all pids...\n");
     // domainid_t *arr; 
@@ -305,7 +304,6 @@ int main(int argc, char *argv[])
     //     debug_printf("pid: %d\n", arr[i]);
     // }
     // debug_printf("Done.\n");
-
     debug_printf("Running Command Line Interface Demo...\n");
     cli_demo();
     debug_printf("Done\n\n");
@@ -324,6 +322,5 @@ int main(int argc, char *argv[])
 
     //
     // debug_printf("Done\n\n");
-        
     return 0;
 }

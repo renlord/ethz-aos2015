@@ -39,8 +39,6 @@
 //                  (DEFAULT_LMP_BUF_WORDS + 1) * sizeof(uintptr_t))
 #define FIRSTEP_BUFLEN          21u
 
-#define MEMEATER_NAME "armv7/sbin/memeater"
-
 struct bootinfo *bi;
 static coreid_t my_core_id;
 
@@ -57,6 +55,7 @@ static errval_t get_all_pids(struct lmp_chan *lc);
 static const char *get_pid_name(domainid_t pid);
 static size_t get_pids_count(void);
 static errval_t reply_string(struct lmp_chan *lc, const char *string);
+static void register_process(struct spawninfo *si, const char *name);
 
 
 struct client_state {
@@ -162,7 +161,6 @@ void recv_handler(void *lc_in)
         return;
     }
 
-    
     // Re-register
     lmp_chan_register_recv(lc, get_default_waitset(),
         MKCLOSURE(recv_handler, lc_in));
@@ -243,7 +241,9 @@ void recv_handler(void *lc_in)
             (*cur)->send_msg[0] = REQUEST_CHAN;
             (*cur)->send_msg[1] = '\0';
             (*cur)->send_cap = ep_cap;
-            err = lmp_chan_register_send(lc_in, get_default_waitset(),
+            // we use the new lmp chan from now on, instead of the initial
+            // lmp chan used to register a new channel. 
+            err = lmp_chan_register_send(new_state->lc, get_default_waitset(),
                                          MKCLOSURE(send_handler, *cur));
             if (err_is_fail(err)) {
                 debug_printf("Could not re-register for sending\n");
@@ -569,6 +569,7 @@ static errval_t spawn(const char *name, domainid_t *pid)
     } 
 
     *pid = si.domain_id;
+    register_process(&si, name);
 
     // Copy Init's EP to Memeater's CSpace
     struct capref cap_dest;
@@ -672,6 +673,12 @@ static void register_process(struct spawninfo *si, const char *name)
     temp->next->name = name;
     temp->next->next = NULL;
 }
+
+// initializes all essential services..
+// void bootstrap(void) 
+// {
+
+// }
 
 int main(int argc, char *argv[])
 {
@@ -801,50 +808,20 @@ int main(int argc, char *argv[])
     // TO BE MOVED TO DEDICATED program afterwards.
     debug_printf("Spawning memeater...\n");
     
-    struct mem_region *memeater_mr = multiboot_find_module(bi, MEMEATER_NAME);
-    assert(memeater_mr != NULL);
-
-    struct spawninfo memeater_si;
-    err = spawn_load_with_args(&memeater_si, memeater_mr,
-                               MEMEATER_NAME, disp_get_core_id(),
-                               argv, argv);
-
+    domainid_t memeater_pid;
+    err = spawn("memeater", &memeater_pid);
     if (err_is_fail(err)) {
-        debug_printf("Failed spawn image: %s\n",
-            err_getstring(err));
-        err_print_calltrace(err);
-        exit(-1);
-    } else {
-        debug_printf("Image spawned.\n");
-    }    
-
-    register_process(&memeater_si, "memeater");
-
-    // Copy Init's EP to Memeater's CSpace
-    struct capref cap_dest;
-    cap_dest.cnode = memeater_si.taskcn;
-    cap_dest.slot = TASKCN_SLOT_INITEP;
-    err = cap_copy(cap_dest, cap_initep);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "failed to copy init ep to memeater cspace\n");
-        abort();
+        DEBUG_ERR(err, "failed to spawn memeater\n");
     }
 
-    err = spawn_run(&memeater_si);
+    domainid_t blink_pid;
+    err = spawn("blink", &blink_pid);
     if (err_is_fail(err)) {
-        debug_printf("Failed spawn image: %s\n",
-            err_getstring(err));
-        err_print_calltrace(err);
-        abort();
+        DEBUG_ERR(err, "failed to spawn blink\n");
     }
 
-    err = spawn_free(&memeater_si);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "failed to free memeater domain from init memory\n");
-        abort();
-    }
-    
     debug_printf("init domain_id: %d\n", disp_get_domain_id());
+
     debug_printf("Entering dispatch loop\n");
     while(true) {
         event_dispatch(get_default_waitset());

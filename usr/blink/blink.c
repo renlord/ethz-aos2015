@@ -54,22 +54,17 @@ void set_gpio1_registers(lvaddr_t base)
 
 int main(int argc, char *argv[])
 {
-    debug_printf("blink main called, now exiting\n");
-    debug_printf("blinks domain_name: %s\n", disp_name());
-    debug_printf("blinks domain_id: %d\n", disp_get_domain_id());
+    debug_printf("%s, pid: %u\n", disp_name(), disp_get_domain_id());
     
-    uint32_t i = 0;
-    while(true){
-        if(i++ % 30000000 == 0){
-            aos_rpc_send_string(&local_rpc, "special blink");
-            event_dispatch(get_default_waitset());
-            // debug_printf("blink still alive...\n");
-        }
-    }
+    // while(true){
+    //     if(i++ % 30000000 == 0){
+    //         aos_rpc_send_string(&local_rpc, "special blink");
+    //         event_dispatch(get_default_waitset());
+    //         // debug_printf("blink still alive...\n");
+    //     }
+    // }
     
-    return 0;
-    
-    int32_t no_of_blinks = (argc > 1) ? atoi(argv[1]) : 5;
+    // int32_t no_of_blinks = (argc > 1) ? atoi(argv[1]) : 5;
     float blink_rate = (float) (argc > 2) ? atoi(argv[2]) : 1;
     
     errval_t err;
@@ -77,12 +72,12 @@ int main(int argc, char *argv[])
     size_t retlen;
     err = aos_rpc_get_dev_cap(&local_rpc, OMAP44XX_MAP_L4_PER_UART3,
         OMAP44XX_MAP_L4_PER_UART3_SIZE, &retcap, &retlen);
-
     if (err_is_fail(err)) {
         debug_printf("Failed to get IO Cap from init... %s\n");
         err_print_calltrace(err);
         abort();
     }
+    debug_printf("dev cap received, dev mapped. OK\n");
 
     size_t offset = GPIO1_BASE - 0x40000000;
     lvaddr_t uart_addr = (1UL << 28)*3;
@@ -91,13 +86,16 @@ int main(int argc, char *argv[])
                             VREGION_FLAGS_READ_WRITE_NOCACHE);
                             
     set_gpio1_registers(uart_addr);
-    
-    while(no_of_blinks-- > 0) {
+    debug_printf("user device registers set. OK\n");
+
+    while(true) {
         blink_me(true);
         stall(1./blink_rate);
 
         blink_me(false);
         stall(1./blink_rate);
+
+        event_dispatch(get_default_waitset());
     }
         
     return 0;
