@@ -1,52 +1,60 @@
-#include <barrelfish/barrelfish.h>
-#include <barrelfish/cspace.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
-#include <barrelfish/debug.h>
-#include <barrelfish/lmp_chan_arch.h>
-#include <barrelfish/lmp_chan.h>
-#include <barrelfish/aos_rpc.h>
-#include <barrelfish/paging.h>
-#include <omap44xx_map.h>
-
-#define GPIO1_BASE 0x4a310000
+#include "blink.h"
 
 static volatile uint32_t *gpio1_oe;
 static volatile uint32_t *gpio1_dataout;
 
-void blink_me(bool on);
-void blink_me(bool on)
+static struct periodic_event pe;
+
+static void set_gpio1_registers(lvaddr_t base);
+// static void stall(float secs);
+// static void blink_led(void);
+static void led_toggle(bool t);
+
+static void blink_led(void)
 {
     uint32_t bitmask = 1<<8;
-    
+
     // Output enable
     *gpio1_oe &= ~bitmask;
     
-    // Enable/disable led
-    if(on) {
-        *gpio1_dataout |= bitmask;
-    } else {
-        *gpio1_dataout &= ~bitmask;
-    }
+    // // Enable/disable led
+    // if(on) {
+    //     *gpio1_dataout |= bitmask;
+    // } else {
+    //     *gpio1_dataout &= ~bitmask;
+    // }
+
+    *gpio1_dataout ^= bitmask;
     
     // Output disable
     *gpio1_oe |= bitmask;
 }
 
-void stall(float secs);
-void stall(float secs) 
+static void led_toggle(bool t)
 {
-    unsigned long us = (int) (float)(1UL << 26)*3*secs;
+    uint32_t bitmask = 1<<8;
 
-    while (us-- > 0) 
-    {
-        __asm volatile("nop");
-    }
+    // Output enable
+    *gpio1_oe &= ~bitmask;
+    
+    *gpio1_dataout = t ? (*gpio1_dataout |= bitmask) : 
+                            (*gpio1_dataout &= ~bitmask);
+
+    // Output disable
+    *gpio1_oe |= bitmask;
 }
 
-void set_gpio1_registers(lvaddr_t base);
-void set_gpio1_registers(lvaddr_t base)
+// static void stall(float secs) 
+// {
+//     unsigned long us = (int) (float)(1UL << 26)*3*secs;
+
+//     while (us-- > 0) 
+//     {
+//         __asm volatile("nop");
+//     }
+// }
+
+static void set_gpio1_registers(lvaddr_t base)
 {
     gpio1_oe      = (uint32_t *) (base + 0x134);
     gpio1_dataout = (uint32_t *) (base + 0x13c);
@@ -65,7 +73,9 @@ int main(int argc, char *argv[])
     // }
     
     // int32_t no_of_blinks = (argc > 1) ? atoi(argv[1]) : 5;
-    float blink_rate = (float) (argc > 2) ? atoi(argv[2]) : 1;
+    delayus_t blink_rate = ((argc > 2) ? atoi(argv[2]) : 1) * 10000; 
+
+    debug_printf("blink_rate set to: %u\n", blink_rate);
     
     errval_t err;
     struct capref retcap;
@@ -78,7 +88,7 @@ int main(int argc, char *argv[])
         abort();
     }
     debug_printf("dev cap received, dev mapped. OK\n");
-
+    
     size_t offset = GPIO1_BASE - 0x40000000;
     lvaddr_t uart_addr = (1UL << 28)*3;
     err = paging_map_user_device(get_current_paging_state(), uart_addr,
@@ -88,15 +98,18 @@ int main(int argc, char *argv[])
     set_gpio1_registers(uart_addr);
     debug_printf("user device registers set. OK\n");
 
-    while(true) {
-        blink_me(true);
-        stall(1./blink_rate);
-
-        blink_me(false);
-        stall(1./blink_rate);
-
-        event_dispatch(get_default_waitset());
+    err = periodic_event_create(&pe, get_default_waitset(), blink_rate,  
+                                    MKCLOSURE((void *) blink_led, NULL));
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "failed to register periodic event!\n");
+        err_print_calltrace(err);
     }
-        
+    debug_printf("periodic event registered.\n");
+
+    while(true) event_dispatch(get_default_waitset());
+
+    assert(argc == 1);
+    led_toggle(argv[1]);
+
     return 0;
 }

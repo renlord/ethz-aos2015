@@ -138,6 +138,12 @@ struct capref cap_initep = {
     .slot  = TASKCN_SLOT_INITEP
 };
 
+// CUSTOM ADDITION: Capability for Parent Endpoint
+struct capref cap_remep = {
+    .cnode = TASK_CNODE_INIT,
+    .slot  = TASKCN_SLOT_REMEP
+};
+
 static inline bool backoff(int count)
 {
     // very crude exponential backoff based upon core id
