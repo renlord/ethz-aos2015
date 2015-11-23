@@ -17,14 +17,12 @@ static void blink_led(void)
     // Output enable
     *gpio1_oe &= ~bitmask;
     
-    // // Enable/disable led
-    // if(on) {
-    //     *gpio1_dataout |= bitmask;
-    // } else {
-    //     *gpio1_dataout &= ~bitmask;
-    // }
-
-    *gpio1_dataout ^= bitmask;
+    // Enable/disable led
+    if ((*gpio1_dataout & bitmask) == 0) {
+        *gpio1_dataout |= bitmask;
+    } else {
+        *gpio1_dataout &= ~bitmask;
+    }
     
     // Output disable
     *gpio1_oe |= bitmask;
