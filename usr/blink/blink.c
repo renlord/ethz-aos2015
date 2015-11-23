@@ -8,7 +8,7 @@ static struct periodic_event pe;
 static void set_gpio1_registers(lvaddr_t base);
 // static void stall(float secs);
 // static void blink_led(void);
-static void led_toggle(bool t);
+// static void led_toggle(bool t);
 
 static void blink_led(void)
 {
@@ -28,21 +28,27 @@ static void blink_led(void)
     
     // Output disable
     *gpio1_oe |= bitmask;
+
+    errval_t err = event_dispatch(get_default_waitset());
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "failed to dispatch event\n");
+        err_print_calltrace(err);
+    }
 }
 
-static void led_toggle(bool t)
-{
-    uint32_t bitmask = 1<<8;
+// static void led_toggle(bool t)
+// {
+//     uint32_t bitmask = 1<<8;
 
-    // Output enable
-    *gpio1_oe &= ~bitmask;
+//     // Output enable
+//     *gpio1_oe &= ~bitmask;
     
-    *gpio1_dataout = t ? (*gpio1_dataout |= bitmask) : 
-                            (*gpio1_dataout &= ~bitmask);
+//     *gpio1_dataout = t ? (*gpio1_dataout |= bitmask) : 
+//                             (*gpio1_dataout &= ~bitmask);
 
-    // Output disable
-    *gpio1_oe |= bitmask;
-}
+//     // Output disable
+//     *gpio1_oe |= bitmask;
+// }
 
 // static void stall(float secs) 
 // {
@@ -103,13 +109,20 @@ int main(int argc, char *argv[])
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "failed to register periodic event!\n");
         err_print_calltrace(err);
+    } else {
+        debug_printf("periodic event registered.\n");
     }
-    debug_printf("periodic event registered.\n");
+    
+    while (true) {
+        err = event_dispatch(get_default_waitset());
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "failed to dispatch event\n");
+            err_print_calltrace(err);
+        } 
+    }
 
-    while(true) event_dispatch(get_default_waitset());
-
-    assert(argc == 1);
-    led_toggle(argv[1]);
+    // assert(argc == 1);
+    // led_toggle(argv[1]);
 
     return 0;
 }
