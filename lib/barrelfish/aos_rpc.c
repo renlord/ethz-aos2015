@@ -325,7 +325,8 @@ errval_t aos_rpc_serial_putchar(struct aos_rpc *chan, char c)
     struct lmp_chan lc = chan->lc;
     errval_t err;
     
-    err = lmp_chan_send2(&lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, SERIAL_PUT_CHAR, c);
+    err = lmp_chan_send2(&lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
+                            SERIAL_PUT_CHAR, c);
     if (err_is_fail(err)) {
         return err;
     } 

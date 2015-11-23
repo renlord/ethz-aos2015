@@ -103,7 +103,6 @@ errval_t serial_get_char(char *c)
     *uart3_rhr = 0;
     while((*uart3_lsr & 1) == 0);
     *c = (char)*uart3_rhr;
-    serial_put_char(c);
     return SYS_ERR_OK;
 }
 

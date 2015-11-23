@@ -19,6 +19,13 @@
 #define BIG_CHUMP_ARRAY_SIZE (1UL << 3)
 #define BIG_CHUMP_SIZE (1UL << 25)
 
+#define BACKSPACE   8
+#define ESCAPE      27
+#define DELETE      127
+#define SIGINT      3  
+#define SIGEOF      26
+#define RETURN      13
+    
 static void *my_malloc(size_t size);
 static void *my_malloc(size_t size)
 {
@@ -120,21 +127,46 @@ static void scan_line(char *buf)
 {   
     char c = '\0';
     memset(buf, '\0', 256);
-    size_t i;
+    size_t i = 0;
     print_line("cli-demo-shell$ ");
-    for (i = 0; i < 256; i++) {
+
+    while (i < 256) {
+
         errval_t err = aos_rpc_serial_getchar(&local_rpc, &c);
         if (err_is_fail(err)) {
             debug_printf("userland scan_line fail! %s\n", err_getstring(err));
             err_print_calltrace(err);
             break;
         }
-        
-        if (c == 13) {
+
+        if (i > 0) {
+            if (c == DELETE) { // Mac has no backspace T_T
+                aos_rpc_serial_putchar(&local_rpc, BACKSPACE);
+                c = BACKSPACE;
+            }
+
+            if (c == BACKSPACE) {
+                aos_rpc_serial_putchar(&local_rpc, ' ');
+                aos_rpc_serial_putchar(&local_rpc, BACKSPACE);
+                i--;
+            }
+        }
+
+        if (c == RETURN) {
             print_line("\r\n");
             break;
         }
-        memcpy(&buf[i], &c, 1);
+
+        if (c > 31 && c < 127) {
+            // filtering special characters
+            err = aos_rpc_serial_putchar(&local_rpc, c);
+            if (err_is_fail(err)) {
+                DEBUG_ERR(err, "fail to put char after getting char\n");
+                err_print_calltrace(err);
+            }
+            memcpy(&buf[i], &c, 1);
+            i++;
+        }
     }
 }
 

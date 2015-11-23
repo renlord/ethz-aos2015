@@ -111,14 +111,12 @@ int main(int argc, char *argv[])
         debug_printf("periodic event registered.\n");
     }
     
-    while (true) {
-        err = event_dispatch(get_default_waitset());
-        if (err_is_fail(err)) {
-            DEBUG_ERR(err, "failed to dispatch event\n");
-            err_print_calltrace(err);
-        } 
-    }
-
+    err = event_dispatch(get_default_waitset());
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "failed to dispatch event\n");
+        err_print_calltrace(err);
+    } 
+    
     // assert(argc == 1);
     // led_toggle(argv[1]);
 
