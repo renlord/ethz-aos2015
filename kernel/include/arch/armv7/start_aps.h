@@ -30,6 +30,9 @@
 #define AUX_CORE_BOOT_1 ((lpaddr_t)0x48281804)
 
 
+// Entry point into the kernel for second core
+void app_core_start(void); // defined in boot.S
+
 /**
  * Send event to other core
  * PandaBoard specific

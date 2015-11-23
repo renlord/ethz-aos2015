@@ -512,8 +512,8 @@ void app_core_init(void *pointer);
 void  __attribute__ ((noinline,noreturn))
 app_core_init(void *pointer)
 {
-
-//    serial_early_init(serial_console_port);
+    //serial_early_init(serial_console_port);
+    //printk(LOG_NOTE, "hi\n");
     printf("in core-1\n");
     printf("########################################################\n");
     while(true);
@@ -539,7 +539,7 @@ void arch_init(void *pointer)
         struct multiboot_info *mb = (struct multiboot_info *)pointer;
         elf = (struct arm_coredata_elf *)&mb->syms.elf;
     	memset(glbl_core_data, 0, sizeof(struct arm_core_data));
-       glbl_core_data->start_free_ram = ROUND_UP(max(multiboot_end_addr(mb),
+        glbl_core_data->start_free_ram = ROUND_UP(max(multiboot_end_addr(mb),
                     (uintptr_t)&kernel_final_byte), BASE_PAGE_SIZE);
 
         glbl_core_data->mods_addr = mb->mods_addr;
@@ -576,12 +576,16 @@ void arch_init(void *pointer)
 	   local_phys_to_mem((uint32_t)&kernel_first_byte));
 
     //start_another_core(); while(true); // works
+    //printk(LOG_NOTE, "addr of app_core_init: %p\n", app_core_init);
+    start_aps_arm_start(1,  (lpaddr_t) app_core_start);  
+
     print_system_identification();
     size_ram();
     set_leds();
     printk(LOG_NOTE, "before paging_init\n");
     paging_init();
     printk(LOG_NOTE, "after paging_init\n");
+
     cp15_enable_mmu();
     printk(LOG_NOTE, "MMU enabled\n");
     text_init();

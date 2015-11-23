@@ -36,8 +36,8 @@ void send_event(void)
 
 
 
-// Entry point into the kernel for second core
-void app_core_start(void); // defined in boot.S
+// // Entry point into the kernel for second core
+// void app_core_start(void); // defined in boot.S
 
 
 /**
@@ -52,6 +52,13 @@ void app_core_start(void); // defined in boot.S
 int start_aps_arm_start(uint8_t core_id, lpaddr_t entry)
 {
     // TODO: you might want to implement this function
-    printk(LOG_NOTE, "NYI!");
+	volatile uint32_t *aux_core_boot_0 = (uint32_t *) AUX_CORE_BOOT_0;
+	volatile uint32_t *aux_core_boot_1 = (uint32_t *) AUX_CORE_BOOT_1;
+
+	*(aux_core_boot_0) |= core_id << 2;
+	*(aux_core_boot_1) = entry;
+	send_event();
+
+    printk(LOG_NOTE, "start_aps_arm_start \n");
     return SYS_ERR_OK;
 }
