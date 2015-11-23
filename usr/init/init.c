@@ -26,7 +26,6 @@
 
 
 #define MAX_CLIENTS 50
-// #define FIRSTEP_BUFLEN 20u
 #define HARD_LIMIT (1UL << 28)
 
  // first EP starts in dispatcher frame after dispatcher (33472 bytes)
@@ -39,10 +38,9 @@
 //                  (DEFAULT_LMP_BUF_WORDS + 1) * sizeof(uintptr_t))
 #define FIRSTEP_BUFLEN          21u
 
-struct bootinfo *bi;
 static coreid_t my_core_id;
 
-static struct client_state *fst_client;
+static struct client_state *client_stack;
 static struct process *fst_process;
     
 static volatile uint32_t *uart3_thr = NULL;
@@ -57,6 +55,7 @@ static size_t get_pids_count(void);
 static errval_t reply_string(struct lmp_chan *lc, const char *string);
 static void register_process(struct spawninfo *si, const char *name);
 
+struct bootinfo *bi;
 
 struct client_state {
     struct client_state *next;
@@ -66,7 +65,9 @@ struct client_state {
     size_t char_count;
     uint32_t send_msg[9];
     struct capref send_cap;
+    struct event_closure next_event;
 };
+
 
 struct process {
     domainid_t pid;
@@ -84,8 +85,21 @@ struct serial_read_lock {
     struct client_state *cli;
 };
 
-//static struct serial_write_lock write_lock;
-//static struct serial_read_lock read_lock;
+static void stack_push(struct client_state *cs);
+static void stack_push(struct client_state *cs)
+{
+    cs->next = client_stack;
+    client_stack = cs;
+    return;
+}
+
+static struct client_state *stack_pop(void);
+static struct client_state *stack_pop(void)
+{
+    struct client_state *cs = client_stack;
+    client_stack = cs->next;
+    return cs;
+}
 
 errval_t serial_put_char(const char *c) 
 {
@@ -140,11 +154,17 @@ void send_handler(void *client_state_in)
 
 void recv_handler(void *lc_in)
 {
-    // debug_printf("receiving on lc 0x%08x\n", lc_in);
     struct capref remote_cap = NULL_CAP;
     struct lmp_chan *lc = (struct lmp_chan *)lc_in;
-    struct lmp_recv_msg msg = LMP_RECV_MSG_INIT;
     
+    // Find the state for the requesting client
+    struct client_state *cs = client_stack;
+    while (cs != NULL && cs->lc != lc){
+        cs = cs->next;
+    }
+        
+    // Retrieve message
+    struct lmp_recv_msg msg = LMP_RECV_MSG_INIT;
     errval_t err = lmp_chan_recv(lc, &msg, &remote_cap);
 
     if (err_is_fail(err)) {
@@ -154,37 +174,40 @@ void recv_handler(void *lc_in)
         return;
     }
 
+    // Re-register
+    lmp_chan_register_recv(lc, get_default_waitset(),
+        MKCLOSURE(recv_handler, lc_in));
+    
     // Our protocol requires that there is a procedure code
     // at a bare minimum
     if (msg.buf.msglen == 0) {
         debug_printf("Bad msg for init.\n");
         return;
     }
-
-    // Re-register
-    lmp_chan_register_recv(lc, get_default_waitset(),
-        MKCLOSURE(recv_handler, lc_in));
     
     uint32_t code = msg.buf.words[0];
 
-    struct client_state *cs = fst_client;
-    while (cs != NULL && cs->lc->endpoint != lc->endpoint){
-        cs = cs->next;
-    }
-
     assert(cs != NULL || code == REQUEST_CHAN);
-
+    
+    bool reply = false;
+    
     switch(code) {
         
         // Initial request from new clients, causes init to establish
         // a new channel for future communication
         case REQUEST_CHAN:
         {
+            debug_printf("client_stack:     0x%08x\n", client_stack);
+            debug_printf("client_stack->lc: 0x%08x\n", client_stack->lc);
+            
             if (capref_is_null(remote_cap)) {
                 debug_printf("Received endpoint cap was null.\n");
                 return;
             }
-                        
+            
+            
+            cs = client_stack;
+            
             // Create new endpoint and channel, and initialize
             struct capref ep_cap;
             struct lmp_endpoint *my_ep; 
@@ -205,22 +228,6 @@ void recv_handler(void *lc_in)
             new_chan->endpoint = my_ep;
             debug_printf("init handed out channel 0x%08x\n", new_chan->endpoint);
 
-            // Allocate new client state
-            struct client_state **cur = &fst_client;
-            struct client_state **prev;
-            while(*cur != NULL) {
-                prev = cur;
-                cur = &((*cur)->next);
-            }
-            
-            struct client_state *new_state =
-                (struct client_state *) malloc(sizeof(struct client_state));
-            new_state->next = NULL;
-            new_state->lc = new_chan;
-            new_state->alloced = 0;
-            new_state->char_count = 0;
-            *cur = new_state;
-
             err = lmp_chan_alloc_recv_slot(new_chan);
             if (err_is_fail(err)) {
                 debug_printf("Could not allocate receive slot!\n");
@@ -237,19 +244,15 @@ void recv_handler(void *lc_in)
                 return;
             }
 
-            // Send new endpoint cap back to client
-            (*cur)->send_msg[0] = REQUEST_CHAN;
-            (*cur)->send_msg[1] = '\0';
-            (*cur)->send_cap = ep_cap;
-            // we use the new lmp chan from now on, instead of the initial
-            // lmp chan used to register a new channel. 
-            err = lmp_chan_register_send(new_state->lc, get_default_waitset(),
-                                         MKCLOSURE(send_handler, *cur));
-            if (err_is_fail(err)) {
-                debug_printf("Could not re-register for sending\n");
-                return;
-            }
+            // Insert in ps_entry
+            assert(cs->lc == NULL);
+            cs->lc = new_chan;
 
+            // Send new endpoint cap back to client
+            cs->send_msg[0] = REQUEST_CHAN;
+            cs->send_msg[1] = '\0';
+            cs->send_cap = ep_cap;
+            reply = true;
 
             // Allocate receive struct right away for next msg
             err = lmp_chan_alloc_recv_slot(lc);
@@ -260,9 +263,6 @@ void recv_handler(void *lc_in)
                 return;
             }
     
-
-            debug_printf("first lmp msg OK!\n");
-            
             break;
         }
         
@@ -294,6 +294,7 @@ void recv_handler(void *lc_in)
                     }
                 }
                 
+                reply = true;
                 cs->send_msg[0] = SEND_TEXT;
                 cs->send_msg[1] = (uint32_t)'p';
                 cs->send_msg[2] = (uint32_t)'o';
@@ -301,13 +302,6 @@ void recv_handler(void *lc_in)
                 cs->send_msg[4] = (uint32_t)'g';
                 cs->send_msg[5] = (uint32_t)'\0';
                 cs->send_cap = NULL_CAP;
-                err = lmp_chan_register_send(lc_in, get_default_waitset(),
-                                             MKCLOSURE(send_handler, cs));
-                if (err_is_fail(err)) {
-                    debug_printf("Could not register for sending\n");
-                    return;
-                }
-                
             }
         }
         break;
@@ -339,13 +333,9 @@ void recv_handler(void *lc_in)
             // Send cap and return bits back to caller
             cs->send_msg[0] = REQUEST_FRAME_CAP;
             cs->send_msg[1] = log2ceil(ret_bytes);
+            cs->send_msg[2] = '\0';
             cs->send_cap = dest;
-            err = lmp_chan_register_send(lc_in, get_default_waitset(),
-                                         MKCLOSURE(send_handler, cs));
-            if (err_is_fail(err)) {
-                debug_printf("Could not register for sending\n");
-                return;
-            }
+            reply = true;
             
             break;
         }
@@ -353,26 +343,16 @@ void recv_handler(void *lc_in)
         case REQUEST_DEV_CAP:
         {
             cs->send_msg[0] = REQUEST_DEV_CAP;
+            cs->send_msg[1] = '\0';
             cs->send_cap = cap_io;
-            err = lmp_chan_register_send(lc_in, get_default_waitset(),
-                                         MKCLOSURE(send_handler, cs));
-            if (err_is_fail(err)) {
-                debug_printf("Could not register for sending\n");
-                return;
-            }
-
+            reply = true;
+            
             break;
         }
 
         case SERIAL_PUT_CHAR:
         {
-            if (msg.buf.msglen != 2) {
-                debug_printf("invalid message size for serial put char!");
-                return;
-            }
-
             serial_put_char((char *) &msg.buf.words[1]);
-
             break;
         }
 
@@ -383,15 +363,10 @@ void recv_handler(void *lc_in)
 
             cs->send_msg[0] = SERIAL_GET_CHAR;
             cs->send_msg[1] = c;
+            cs->send_msg[2] = '\0';
             cs->send_cap = NULL_CAP;
-            err = lmp_chan_register_send(lc_in, get_default_waitset(),
-                                         MKCLOSURE(send_handler, cs));
+            reply = true;
             
-            if (err_is_fail(err)) {
-                debug_printf("Could not register for sending\n");
-                return;
-            }
-
             break;
         }
 
@@ -417,35 +392,24 @@ void recv_handler(void *lc_in)
             cs->char_count = 0;
 
             // 3. we inform client if app spawn is successful or not.
+            cs->send_msg[0] = PROCESS_SPAWN;
+            cs->send_cap = NULL_CAP;
+            reply = true;
             if (err_is_fail(err)) {
-                err = lmp_chan_send2(lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
-                    PROCESS_SPAWN, false);
+                cs->send_msg[1] = false;
+                cs->send_msg[2] = '\0';
                 DEBUG_ERR(err, "failed to spawn process from SHELL.\n");
-                err_print_calltrace(err);
-                return;
             } else {
-                err = lmp_chan_send3(lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
-                    PROCESS_SPAWN, true, pid);
-                err_print_calltrace(err);
-                return;
+                cs->send_msg[1] = true;
+                cs->send_msg[2] = pid;
+                cs->send_msg[3] = '\0';
             }
-
-            if (err_is_fail(err)) {
-                DEBUG_ERR(err, "failed to reply SPAWN_PROCESS event.\n");
-                err_print_calltrace(err);
-                return;
-            }
+            
             break;
         }
 
         case PROCESS_GET_NAME: 
         {
-            if (msg.buf.msglen != 2) {
-                debug_printf("bad message for PROCESS_GET_NAME, 2 args"
-                    " expected!\n");
-                return;
-            }
-            
             domainid_t pid = (domainid_t) msg.buf.words[1];
             const char *name = get_pid_name(pid);
             err = reply_string(lc, name);
@@ -468,11 +432,6 @@ void recv_handler(void *lc_in)
 
         case PROCESS_GET_ALL_PIDS:
         {
-            if (msg.buf.msglen != 1) {
-                debug_printf("bad message for PROCESS_GET_NAME, 1 args"
-                    " expected!\n");
-                return;
-            }
             err = lmp_chan_send2(lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
                     PROCESS_GET_ALL_PIDS, get_pids_count());
             if (err_is_fail(err)) {
@@ -494,7 +453,21 @@ void recv_handler(void *lc_in)
             // include LIB_ERR_NOT_IMPLEMENTED? 
             debug_printf("Wrong code: %d\n", code);
         }
-    }    
+    }
+    
+    
+    if(reply){
+        if(cs == client_stack){
+            err = lmp_chan_register_send(lc_in, get_default_waitset(),
+                                         MKCLOSURE(send_handler, cs));
+            if (err_is_fail(err)) {
+                debug_printf("Could not register for sending\n");
+                return;
+            }
+        } else {
+            cs->next_event = MKCLOSURE(send_handler, cs);
+        }
+    }
 }
 
 void set_uart3_registers(lvaddr_t base)
@@ -539,18 +512,28 @@ void my_read(void)
 
 static errval_t spawn(const char *name, domainid_t *pid)
 {
+    struct client_state *new_state =
+        (struct client_state *) malloc(sizeof(struct client_state));
+    new_state->next = NULL;
+    new_state->lc = NULL;
+    new_state->alloced = 0;
+    new_state->char_count = 0;
+    new_state->next_event = NOP_CLOSURE;
+    stack_push(new_state);
+
     // concat name with path
     const char *path = "armv7/sbin/"; // size 11
     char concat_name[strlen(name) + 11];
-
-    // strcat(concat_name, path);
-    // strcat(concat_name, name);
 
     memcpy(concat_name, path, strlen(path));
     memcpy(&concat_name[strlen(path)], name, strlen(name)+1);
     
     struct mem_region *mr = multiboot_find_module(bi, concat_name);
-    assert(mr != NULL);
+    if (mr == NULL){
+        // FIXME convert this to user space printing
+        printf("Could not spawn '%s': Program does not exist.\n", name);
+        return SYS_ERR_OK;
+    }
 
     char *argv[1];
     argv[0] = "";
@@ -559,8 +542,10 @@ static errval_t spawn(const char *name, domainid_t *pid)
     envp[0] = "";
     
     struct spawninfo si;
+    debug_printf("prior\n");
     errval_t err = spawn_load_with_args(&si, mr, concat_name, disp_get_core_id(),
             argv, envp);
+    debug_printf("post\n");
 
     if (err_is_fail(err)) {
         debug_printf("Failed spawn image: %s\n", err_getstring(err));
@@ -593,7 +578,7 @@ static errval_t spawn(const char *name, domainid_t *pid)
         DEBUG_ERR(err, "failed to free memeater domain from init memory\n");
         return err;
     }
-
+    
     return SYS_ERR_OK;
 }
 
@@ -721,7 +706,7 @@ int main(int argc, char *argv[])
         int_buf[i] = 1;
     }
     debug_printf("Mem stuff done\n");
-
+    
     // TODO (milestone 4): Implement a system to manage the device memory
     // that's referenced by the capability in TASKCN_SLOT_IO in the task
     // cnode. Additionally, export the functionality of that system to other
@@ -740,24 +725,6 @@ int main(int argc, char *argv[])
         DEBUG_ERR(err, "failed to mint cap_selfep to cap_initep\n");
         abort();
     }
-
-    debug_printf("cap_initep, cap_selfep OK.\n");
-            
-    size_t offset = OMAP44XX_MAP_L4_PER_UART3 - 0x40000000;
-    lvaddr_t uart_addr = 1UL << 30;
-    err = paging_map_user_device(get_current_paging_state(), uart_addr,
-                            cap_io, offset, OMAP44XX_MAP_L4_PER_UART3_SIZE,
-                            VREGION_FLAGS_READ_WRITE_NOCACHE);
-
-    debug_printf("cap_io mapped OK.\n");
-
-    if (err_is_fail(err)) {
-        debug_printf("Could not map io cap: %s\n", err_getstring(err));
-        err_print_calltrace(err);
-        abort();
-    }
-
-    set_uart3_registers(uart_addr);
         
     struct waitset *ws = get_default_waitset();
     waitset_init(ws);
@@ -771,7 +738,7 @@ int main(int argc, char *argv[])
      * sentinel word).
      */
     
-    // fst_client = (struct client_state *) malloc(sizeof(struct client_state));
+    // client_stack = (struct client_state *) malloc(sizeof(struct client_state));
     fst_process = (struct process *) malloc(sizeof(struct process));
 
     // Register INIT as first process!!!
@@ -799,26 +766,78 @@ int main(int argc, char *argv[])
         exit(-1);
     }
     
-    fst_client = NULL;
+    client_stack = NULL;
+
+    debug_printf("cap_initep, cap_selfep OK.\n");
 
     // Technically, we would just like to spawn a shell process and that's it.
     // TODO
 
     // PROCESS SPAWNING CODE 
     // TO BE MOVED TO DEDICATED program afterwards.
-    debug_printf("Spawning memeater...\n");
-    
     domainid_t memeater_pid;
+
+    debug_printf("Spawning memeater...\n");
+
     err = spawn("memeater", &memeater_pid);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "failed to spawn memeater\n");
+    } else {
+        debug_printf("Done\n");
     }
+    // event_dispatch(get_default_waitset());
+    // event_dispatch(get_default_waitset());
+    // unsigned long us = (int) (float)(1UL << 26)*10;
 
-    domainid_t blink_pid;
-    err = spawn("blink", &blink_pid);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "failed to spawn blink\n");
-    }
+    // while (us-- > 0)
+    // {
+    //     __asm volatile("nop");
+    // }
+    
+    // // event_dispatch(get_default_waitset());
+    // debug_printf("Spawning blink...\n");
+    // err = spawn("blink", &memeater_pid);
+    // if (err_is_fail(err)) {
+    //     DEBUG_ERR(err, "failed to spawn blink\n");
+    // } else {
+    //     debug_printf("Done\n");
+    // }
+
+
+
+    // size_t offset = OMAP44XX_MAP_L4_PER_UART3 - 0x40000000;
+    // // lvaddr_t uart_addr = (1UL << 28);
+    // lvaddr_t uart_addr;
+    // paging_alloc(get_current_paging_state(), (void**)&uart_addr,
+    //     OMAP44XX_MAP_L4_PER_UART3_SIZE);
+    // struct capref copy;
+    // err = devframe_type(&copy, cap_io, 30);
+    // if (err_is_fail(err)){
+    //     debug_printf("Could not copy capref: %s\n", err_getstring(err));
+    //     err_print_calltrace(err);
+    //     abort();
+    // }
+    //
+    // err = paging_map_user_device(get_current_paging_state(), uart_addr,
+    //                         copy, offset, OMAP44XX_MAP_L4_PER_UART3_SIZE,
+    //                         VREGION_FLAGS_READ_WRITE_NOCACHE);
+    //
+    //
+    // if (err_is_fail(err)) {
+    //     debug_printf("Could not map io cap: %s\n", err_getstring(err));
+    //     err_print_calltrace(err);
+    //     abort();
+    // } else {
+    //     debug_printf("cap_io mapped OK.\n");
+    // }
+    //
+    // set_uart3_registers(uart_addr);
+
+    
+    
+    void *c = stack_pop;
+    c = stack_push;
+    c=c;
 
     debug_printf("init domain_id: %d\n", disp_get_domain_id());
 

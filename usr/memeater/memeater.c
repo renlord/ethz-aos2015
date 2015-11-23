@@ -121,7 +121,8 @@ static void scan_line(char *buf)
     char c = '\0';
     memset(buf, '\0', 256);
     size_t i;
-    print_line("cli-demo-shell$ ");
+    const char *prompt = "cli-demo-shell$ ";
+    print_line(prompt);
     for (i = 0; i < 256; i++) {
         errval_t err = aos_rpc_serial_getchar(&local_rpc, &c);
         if (err_is_fail(err)) {
@@ -133,8 +134,21 @@ static void scan_line(char *buf)
         if (c == 13) {
             print_line("\r\n");
             break;
+        } else if(c == 127){
+            i--;
+            buf[i] = ' ';
+            print_line("\r");
+            print_line(prompt);
+            print_line(buf);
+            buf[i] = '\0';
+            print_line("\r");
+            print_line(prompt);
+            print_line(buf);
+        } else {
+            memcpy(&buf[i], &c, 1);            
         }
-        memcpy(&buf[i], &c, 1);
+        
+        
     }
 }
 
@@ -207,6 +221,15 @@ static void cli_demo(void)
             // perform_array_test(SMALL_CHUMP_SIZE, SMALL_CHUMP_ARRAY_SIZE);
             // debug_printf("Done\n\n");
 
+        } else if (strcmp(argv[0], "spawn") == 0) {
+            domainid_t new_pid;
+            errval_t err = aos_rpc_process_spawn(&local_rpc, argv[1], &new_pid);
+            if(err_is_fail(err)){
+                err_print_calltrace(err);
+                abort();
+            } // else {
+ //                debug_printf("Spawned program '%s' with pid %d\n", argv[0], new_pid);
+ //            }
         } else if (strcmp(argv[0], "exit") == 0) {
             print_line("exiting shell... goodbye\r\n");
             print_line("======== END BASIC SHELL ========\r\n");
@@ -223,104 +246,14 @@ int main(int argc, char *argv[])
 {
     debug_printf("memeater started\n");
     debug_printf("%s, pid: %u\n", disp_name(), disp_get_domain_id());
-    debug_printf("Performing String Test...\n");
-    // for(uint32_t i = 0; i < 150; i++){
-    //     char b[4];
-    //     sprintf(b, "long long long long long string no %d", i);
-    //     aos_rpc_send_string(&local_rpc, b);
-    // }
-    // debug_printf("Done\n\n");
 
-    //debug_printf("Performing Userland scanf test...\n");
-    //char buf[256];
-    //debug_printf("Type something here now: \n\n");
-    //scan_line(buf);
-    //debug_printf("scanned line was -----> %s\n", buf);
-    //debug_printf("Done\n\n");
-    
-    //debug_printf("      ning Command Line Interface Demo...\n");
-    //cli_demo();
-    //debug_printf("Done\n\n");
+    while(true);
+    uint32_t pid;
+    aos_rpc_process_spawn(&local_rpc, "blink", &pid);
 
-    // debug_printf("Performing small chump test...\n");
-    // perform_array_test(SMALL_CHUMP_SIZE, SMALL_CHUMP_ARRAY_SIZE);
-    // debug_printf("Done\n\n");
-
-    // debug_printf("Getting IO Cap from Init...\n");
-    // errval_t err;
-    // struct capref retcap;
-    // size_t retlen;
-    // err = aos_rpc_get_dev_cap(&local_rpc, OMAP44XX_MAP_L4_PER_UART3,
-    //     OMAP44XX_MAP_L4_PER_UART3_SIZE, &retcap, &retlen);
-
-    // if (err_is_fail(err)) {
-    //     debug_printf("Failed to get IO Cap from init... %s\n");
-    //     err_print_calltrace(err);
-    //     exit(-1);
-    // }
-
-    // debug_printf("test process_get_name.\n");
-    // char *name;
-    // err = aos_rpc_process_get_name(&local_rpc, disp_get_domain_id(), &name);
-    // if (err_is_fail(err)) {
-    //     debug_printf("Failed to spawn from memeater... %s\n");
-    //     err_print_calltrace(err);
-    //     exit(-1);
-    // }
-    // debug_printf("name of process: %s\n", name);
-    // debug_printf("done\n\n");
-    //
-    // debug_printf("spawn blink from memeater.\n");
-    // domainid_t pid;
-    // err = aos_rpc_process_spawn(&local_rpc, "blink\0", &pid);
-    // if (err_is_fail(err)) {
-    //     debug_printf("Failed to spawn from memeater... %s\n");
-    //     err_print_calltrace(err);
-    //     exit(-1);
-    // }
-    // debug_printf("done\n\n");
-
-    // debug_printf("Running Command Line Interface Demo...\n");
-    // cli_demo();
-    // debug_printf("Done\n\n");
-
-    
-    // for(uint32_t i = 0; i < 100; i++){
-    //     aos_rpc_send_string(&local_rpc, "ping");
-    //     event_dispatch(get_default_waitset());
-    // }
-    
-    // debug_printf("Test get all pids...\n");
-    // domainid_t *arr; 
-    // size_t pid_count;
-    // err = aos_rpc_process_get_all_pids(&local_rpc, &arr, &pid_count);
-    // if (err_is_fail(err)) {
-    //     debug_printf("Failed to get all pids from init... %s\n");
-    //     err_print_calltrace(err);
-    //     exit(-1);
-    // }
-
-    // for (size_t i = 0; i < pid_count; i++) {
-    //     debug_printf("pid: %d\n", arr[i]);
-    // }
-    // debug_printf("Done.\n");
     debug_printf("Running Command Line Interface Demo...\n");
     cli_demo();
     debug_printf("Done\n\n");
 
-    // debug_printf("Performing small chump test...\n");
-    // perform_array_test(SMALL_CHUMP_SIZE, SMALL_CHUMP_ARRAY_SIZE);
-    // debug_printf("Done\n\n");
-
-    // debug_printf("Performing medium chump test...\n");
-    // perform_array_test(MEDIUM_CHUMP_SIZE, MEDIUM_CHUMP_ARRAY_SIZE);
-    // debug_printf("Done\n\n");
-
-    // debug_printf("Performing big chump test...\n");
-    // perform_array_test(BIG_CHUMP_SIZE, BIG_CHUMP_ARRAY_SIZE);
-    // debug_printf("Done\n\n");
-
-    //
-    // debug_printf("Done\n\n");
     return 0;
 }

@@ -47,11 +47,11 @@ typedef int paging_flags_t;
 #define VREGION_FLAGS_READ_WRITE_MPB \
     (VREGION_FLAGS_READ | VREGION_FLAGS_WRITE | VREGION_FLAGS_MPB)
 
-#define ENTRIES_PER_FRAME 32
+#define ENTRIES_PER_FRAME 1
         
 struct node {
     lvaddr_t addr;
-    size_t max_size;
+    unsigned long long max_size;
     bool allocated;
     struct node *left;
     struct node *right;

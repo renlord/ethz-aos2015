@@ -27,11 +27,6 @@ static void blink_led(void)
     // Output disable
     *gpio1_oe |= bitmask;
 
-    errval_t err = event_dispatch(get_default_waitset());
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "failed to dispatch event\n");
-        err_print_calltrace(err);
-    }
 }
 
 // static void led_toggle(bool t)
@@ -67,19 +62,15 @@ static void set_gpio1_registers(lvaddr_t base)
 int main(int argc, char *argv[])
 {
     debug_printf("%s, pid: %u\n", disp_name(), disp_get_domain_id());
-    
-    // while(true){
-    //     if(i++ % 30000000 == 0){
-    //         aos_rpc_send_string(&local_rpc, "special blink");
-    //         event_dispatch(get_default_waitset());
-    //         // debug_printf("blink still alive...\n");
-    //     }
-    // }
-    
-    // int32_t no_of_blinks = (argc > 1) ? atoi(argv[1]) : 5;
-    delayus_t blink_rate = ((argc > 2) ? atoi(argv[2]) : 1) * 10000; 
+    return 0;
+    delayus_t blink_rate = ((argc > 1) ? atoi(argv[1]) : 1) * 10000; 
+    uint32_t no_of_blinks = (argc > 2) ? atoi(argv[2]) : 10; 
 
-    debug_printf("blink_rate set to: %u\n", blink_rate);
+    blink_rate = 1000;
+    no_of_blinks = 10;
+    
+    debug_printf("blink_rate set to:   %lu\n", blink_rate);
+    debug_printf("no_of_blinks set to: %d\n", no_of_blinks);
     
     errval_t err;
     struct capref retcap;
@@ -111,16 +102,23 @@ int main(int argc, char *argv[])
         debug_printf("periodic event registered.\n");
     }
     
-    while (true) {
+    for(uint32_t i = 0; i < no_of_blinks; i++) {
         err = event_dispatch(get_default_waitset());
         if (err_is_fail(err)) {
             DEBUG_ERR(err, "failed to dispatch event\n");
             err_print_calltrace(err);
-        } 
+        }
+        debug_printf("%d/%d\n", i, no_of_blinks);
     }
-
-    // assert(argc == 1);
-    // led_toggle(argv[1]);
-
+    
+    debug_printf("De-registering periodic event.\n");
+    err = periodic_event_cancel(&pe);
+    if(err_is_fail(err)){
+        err_print_calltrace(err);
+        abort();
+    }
+    
+    debug_printf("blink exiting\n");
+    
     return 0;
 }
