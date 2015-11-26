@@ -33,7 +33,7 @@
 // minimum size to allocate
 #define MIN_BLOB_SIZE (ENTRIES_PER_FRAME*BASE_PAGE_SIZE) 
 
-#define PRINT_CALLS 1
+#define PRINT_CALLS 0
 
 #define MAX(a,b) \
     ({ __typeof__ (a) _a = (a); \
@@ -643,7 +643,7 @@ void paging_init_onthread(struct thread *t)
 #if PRINT_CALLS
     debug_printf("paging_init_onthread called for thread 0x%08x\n", t);
 #endif
-    // TODO: setup exception handler for thread `t'.
+
     void *buf;
     errval_t err = paging_alloc(&current, &buf, EXC_STACK_SIZE);
     if (err_is_fail(err)) {
@@ -654,6 +654,8 @@ void paging_init_onthread(struct thread *t)
         t = NULL;
         return;
     }
+    
+    page_fault_handler(EXCEPT_PAGEFAULT, 0, buf, NULL, NULL);
     
     t->exception_stack = buf;
     t->exception_stack_top = buf+EXC_STACK_SIZE*4; // TODO minus 1 here?
