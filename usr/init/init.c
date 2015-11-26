@@ -24,7 +24,6 @@
 #include <barrelfish/sys_debug.h>
 #include <omap44xx_map.h>
 
-
 #define MAX_CLIENTS 50
 // #define FIRSTEP_BUFLEN 20u
 #define HARD_LIMIT (1UL << 28)
@@ -679,6 +678,13 @@ static void register_process(struct spawninfo *si, const char *name)
 
 // }
 
+// static void temp_core_func(void) 
+// {
+//     debug_printf("hello from core 2\n");
+//     debug_printf("================================\n");
+//     while(true);
+// }
+
 int main(int argc, char *argv[])
 {
     errval_t err;
@@ -714,6 +720,12 @@ int main(int argc, char *argv[])
         DEBUG_ERR(err, "Failed to init memory server module");
         abort();
     }
+
+    // err = sys_boot_core(1, (lpaddr_t) (MEMORY_OFFSET + );
+    // if (err_is_fail(err)) {
+    //     DEBUG_ERR(err, "failed to boot 2nd core from init");
+    //     abort();
+    // }
     
     int *int_buf = (int *)malloc(1000);
     for (uint32_t i = 0; i < 1000; i++) {

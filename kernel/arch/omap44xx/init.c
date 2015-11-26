@@ -577,7 +577,7 @@ void arch_init(void *pointer)
 
     //start_another_core(); while(true); // works
     //printk(LOG_NOTE, "addr of app_core_init: %p\n", app_core_init);
-    start_aps_arm_start(1,  (lpaddr_t) app_core_start);  
+    //start_aps_arm_start(1,  (lpaddr_t) app_core_start);  
 
     print_system_identification();
     size_ram();

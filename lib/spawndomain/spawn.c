@@ -19,12 +19,20 @@
 #include <spawndomain/spawndomain.h>
 #include <barrelfish/dispatcher_arch.h>
 #include <barrelfish_kpi/domain_params.h>
+#include <barrelfish_kpi/arm_core_data.h>
 #include <trace/trace.h>
 #include "spawn.h"
 #include "arch.h"
 #include <elf/elf.h>
 
+#define KERNEL_BIN_NAME     "/armv7/sbin/cpu_omap44xx" 
+
 extern char **environ;
+
+struct monitor_allocate_state {
+    void          *vbase;
+    genvaddr_t     elfbase;
+};
 
 /**
  * \brief Setup an initial cspace
@@ -886,3 +894,248 @@ errval_t spawn_span_domain(struct spawninfo *si, struct capref vroot,
 
     return SYS_ERR_OK;
 }
+
+// // from barrelfish tree
+static errval_t
+spawn_memory_prepare(size_t size, struct capref *cap_ret,
+                     struct frame_identity *frameid)
+{
+    errval_t err;
+    struct capref cap;
+
+    err = frame_alloc(&cap, size, NULL);
+    if (err_is_fail(err)) {
+        return err_push(err, LIB_ERR_FRAME_ALLOC);
+    }
+
+    // // Mark memory as remote
+    // err = cap_mark_remote(cap);
+    // if (err_is_fail(err)) {
+    //     return err;
+    // }
+
+    err = invoke_frame_identify(cap, frameid);
+    if (err_is_fail(err)) {
+        USER_PANIC_ERR(err, "frame_identify failed");
+    }
+
+    *cap_ret = cap;
+    return SYS_ERR_OK;
+}
+
+// // from barrelfish tree
+static errval_t
+spawn_memory_cleanup(struct capref cap)
+{
+
+    errval_t err;
+    err = cap_destroy(cap);
+    if (err_is_fail(err)) {
+        USER_PANIC_ERR(err, "cap_destroy failed");
+    }
+
+    return SYS_ERR_OK;
+}
+
+
+
+// \brief 
+// prepares memory for the new CPU driver
+// adopted from main Barrelfish source tree.
+static errval_t
+cpu_memory_prepare(struct spawninfo *si, 
+                   size_t *size, 
+                   struct capref *cap_ret, 
+                   void **buf_ret, 
+                   struct frame_identity *frameid)
+{
+    errval_t err;
+    struct capref cap;
+    void *buf;
+
+    err = frame_alloc(&cap, *size, size);
+    if (err_is_fail(err)) {
+        USER_PANIC("Failed to allocate %zd memory\n", *size);
+    }
+
+    err = paging_map_frame_attr(si->vspace, &buf,
+                    *size, cap, VREGION_FLAGS_READ_WRITE, 
+                    NULL, NULL);
+    if (err_is_fail(err)) {
+        return err_push(err, LIB_ERR_VSPACE_MAP);
+    }
+
+    // err = vspace_map_one_frame(&buf, *size, cap, NULL, NULL);
+    // if (err_is_fail(err)) {
+    //     return err_push(err, LIB_ERR_VSPACE_MAP);
+    // }
+
+    // // Mark memory as remote
+    // err = cap_mark_remote(cap);
+    // if (err_is_fail(err)) {
+    //     return err;
+    // }
+
+    err = invoke_frame_identify(cap, frameid);
+    if (err_is_fail(err)) {
+        return err_push(err, LIB_ERR_FRAME_IDENTIFY);
+    }
+
+    *cap_ret = cap;
+    *buf_ret = buf;
+    return SYS_ERR_OK;
+}
+
+errval_t
+spawn_core_with_kernel(struct spawninfo *si, 
+                       struct bootinfo *bi,
+                       coreid_t coreid,
+                       const char *cmdline,
+                       struct capref kern_cap);
+errval_t 
+spawn_core_with_kernel(struct spawninfo *si, 
+                       struct bootinfo *bi,
+                       coreid_t coreid, 
+                       const char *cmdline,
+                       struct capref kern_cap)
+{
+    errval_t err;
+
+    /* Get the module from the multiboot */
+    struct mem_region *module = multiboot_find_module(bi, KERNEL_BIN_NAME);
+    if (module == NULL) {
+        debug_printf("could not find module [%s] in multiboot image\n", 
+            KERNEL_BIN_NAME);
+        return SPAWN_ERR_FIND_MODULE;
+    }
+
+    /* Lookup and map the elf image */
+    lvaddr_t binary;
+    size_t binary_size;
+    genpaddr_t phyaddr;
+    err = spawn_map_module(module, &binary_size, &binary, &phyaddr);
+    if (err_is_fail(err)) {
+        return err_push(err, SPAWN_ERR_ELF_MAP);
+    }
+
+    /* Determine cpu type */
+    err = spawn_determine_cputype(si, binary);
+    if (err_is_fail(err)) {
+        return err_push(err, SPAWN_ERR_DETERMINE_CPUTYPE);
+    }
+
+    /* Initialize cspace */
+    err = spawn_setup_cspace(si);
+    if (err_is_fail(err)) {
+        return err_push(err, SPAWN_ERR_SETUP_CSPACE);
+    }
+
+    /* Initialize vspace */
+    err = spawn_setup_vspace(si);
+    if (err_is_fail(err)) {
+        return err_push(err, SPAWN_ERR_VSPACE_INIT);
+    }
+
+    /* Prepare CPU Kernel Address Space */ 
+    //assert(sizeof(struct arm_core_data) <= BASE_PAGE_SIZE);
+    struct {
+        size_t                  size;
+        struct capref           cap;
+        void                    *buf;
+        struct frame_identity   frameid;
+    } cpu_mem = {
+        .size = BASE_PAGE_SIZE + elf_virtual_base(binary)
+    };
+
+    err = cpu_memory_prepare(si, 
+                             &cpu_mem.size, 
+                             &cpu_mem.cap,
+                             &cpu_mem.buf,
+                             &cpu_mem.frameid);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "cpu_memory_prepare failed\n");
+        return err;
+    }
+
+    /* Load and relocate Kernel ELF */
+    uintptr_t reloc_entry = 0;
+    err = elf_load_and_relocate(binary, 
+                                binary_size,
+                                cpu_mem.buf + BASE_PAGE_SIZE, 
+                                cpu_mem.frameid.base + BASE_PAGE_SIZE,
+                                &reloc_entry);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "fail elf load and relocation\n");
+        return err;
+    }
+
+    /* Chunk of memory to load on the app core */
+    struct capref spawn_mem_cap;
+    struct frame_identity spawn_mem_frameid;
+    err = spawn_memory_prepare(ARM_CORE_DATA_PAGES * BASE_PAGE_SIZE, 
+                               &spawn_mem_cap,
+                               &spawn_mem_frameid);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "spawn_memory_prepare fail\n");
+        return err;
+    }
+
+    /* Setup the core_data struct in the new kernel */
+    struct arm_core_data *core_data = (struct arm_core_data *)cpu_mem.buf;
+
+    struct Elf32_Ehdr *head32 = (struct Elf32_Ehdr *)binary;
+    core_data->elf.size = sizeof(struct Elf32_Shdr);
+    core_data->elf.addr = phyaddr + (uintptr_t)head32->e_shoff;
+    core_data->elf.num  = head32->e_shnum;
+
+    core_data->module_start        = phyaddr;
+    core_data->module_end          = phyaddr + binary_size;
+    //core_data->urpc_frame_base     = urpc_frame_id.base;
+    //core_data->urpc_frame_bits     = urpc_frame_id.bits;
+    //core_data->monitor_binary      = monitor_blob.paddr;
+    //core_data->monitor_binary_size = monitor_blob.size;
+    core_data->memory_base_start   = spawn_mem_frameid.base;
+    core_data->memory_bits         = spawn_mem_frameid.bits;
+    core_data->src_core_id         = disp_get_core_id();
+    //core_data->src_arch_id         = my_arch_id;
+    core_data->dst_core_id         = coreid;
+    //core_data->chan_id             = chanid;
+
+    if (cmdline != NULL) {
+        // copy as much of command line as will fit
+        strncpy(core_data->kernel_cmdline, cmdline,
+                sizeof(core_data->kernel_cmdline));
+        // ensure termination
+        core_data->kernel_cmdline[sizeof(core_data->kernel_cmdline) - 1] = '\0';
+    }
+
+    /* Invoke kernel capability to boot new core */
+    // XXX: Confusion address translation about l/gen/addr
+    int hwid = 1;
+    err = invoke_monitor_spawn_core(hwid, CPU_ARM, (forvaddr_t)reloc_entry,
+                                    kern_cap);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "failed to spawn app core\n");
+        return err_push(err, MON_ERR_SPAWN_CORE);
+    }
+
+
+    /* can't clean since there is no paging_unmap!!! */
+
+    // err = cpu_memory_cleanup(cpu_mem.cap, cpu_mem.buf);
+    // if (err_is_fail(err)) {
+    //     DEBUG_ERR(err, "failed to clean cpu memory\n");
+    //     return err;
+    // }
+
+    err = spawn_memory_cleanup(spawn_mem_cap);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "failed to clean spawn memory\n");
+        return err;
+    }
+
+    return SYS_ERR_OK;
+}
+
+
+ 
