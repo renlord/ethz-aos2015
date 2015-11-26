@@ -155,19 +155,7 @@ static void scan_line(char *buf)
         if (c == RETURN) {
             print_line("\r\n");
             break;
-        } else if(c == 127){
-            i--;
-            buf[i] = ' ';
-            print_line("\r");
-            print_line(prompt);
-            print_line(buf);
-            buf[i] = '\0';
-            print_line("\r");
-            print_line(prompt);
-            print_line(buf);
-        } else {
-            memcpy(&buf[i], &c, 1);            
-        }
+        } 
 
         if (c > 31 && c < 127) {
             // filtering special characters
