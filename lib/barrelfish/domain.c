@@ -411,7 +411,6 @@ static int remote_core_init_enabled(void *arg)
     errval_t err;
     struct remote_core_state *remote_core_state =
         (struct remote_core_state*)arg;
-
     /* Initialize the barrelfish library */
     err = barrelfish_init_onthread(NULL);
     if (err_is_fail(err)) {

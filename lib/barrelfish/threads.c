@@ -983,7 +983,7 @@ static int bootstrap_thread(struct spawn_domain_params *params)
     tls_block_init_base = params->tls_init_base;
     tls_block_init_len = params->tls_init_len;
     tls_block_total_len = params->tls_total_len;
-
+    debug_printf("check 3\n");
     // Initialize subsystems
     err = barrelfish_init_onthread(params);
     if (err_is_fail(err)) {
@@ -991,6 +991,7 @@ static int bootstrap_thread(struct spawn_domain_params *params)
         exit(EXIT_FAILURE);
         assert(!"exit returned!");
     }
+    debug_printf("check 4\n");
     // Allocate storage region for real threads
     size_t blocksize = sizeof(struct thread) + tls_block_total_len;
     size_t raw_blocksize = blocksize + sizeof(struct slab_head) + sizeof(uintptr_t);
@@ -1016,6 +1017,7 @@ static int bootstrap_thread(struct spawn_domain_params *params)
         assert(thread != NULL);
     }
 #endif
+    debug_printf("check 5\n");
     return 0; // ignored
 }
 
@@ -1053,19 +1055,20 @@ void thread_init_disabled(dispatcher_handle_t handle, bool init_domain)
 
     uintptr_t param;
     registers_get_param(enabled_area, &param);
-
+    debug_printf("check thread 5.5\n");
     registers_set_initial(&thread->regs, thread, (lvaddr_t)thread_entry,
                           /* TODO: pass stack base and limit, choose in arch
                            * code (possibly setting up other hints on stack) */
                           (lvaddr_t)thread->stack_top,
                           (lvaddr_t)bootstrap_thread, param, 0, 0);
-
+    debug_printf("check 6\n");
     // Switch to it (always on this dispatcher)
     thread->disp = handle;
     thread_enqueue(thread, &disp_gen->runq);
     disp_gen->current = thread;
     disp->haswork = true;
     disp_resume(handle, &thread->regs);
+    debug_printf("check 6\n");
 }
 
 /**
@@ -1331,6 +1334,7 @@ void thread_deliver_exception_disabled(dispatcher_handle_t handle,
                                        enum exception_type type, int subtype,
                                        void *addr, arch_registers_state_t *regs)
 {
+    debug_printf("thread_deliver_exception_disabled called\n");
     struct dispatcher_generic *disp_gen = get_dispatcher_generic(handle);
     struct thread *thread = disp_gen->current;
     assert_disabled(thread != NULL);

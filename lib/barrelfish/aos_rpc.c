@@ -134,8 +134,10 @@ static void recv_handler(void *rpc_void)
 
         case PROCESS_GET_ALL_PIDS:
         {
-            // get number of pids
-            rpc->msg_buf[0] = msg.buf.words[1];
+            debug_printf("PROCESS_GET_ALL_PIDS recv handler\n");
+            rpc->msg_buf[0] = (char) msg.buf.words[1];
+            debug_printf("PROCESS_GET_ALL_PIDS recv handler done\n");
+
             break;
         }
 
@@ -401,28 +403,41 @@ errval_t aos_rpc_process_get_all_pids(struct aos_rpc *chan,
 
     struct lmp_chan lc = chan->lc; 
     errval_t err;
-
+    debug_printf("check1\n");
     err = lmp_chan_send1(&lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
         PROCESS_GET_ALL_PIDS);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "fail to send PROCESS_GET_ALL_PIDS event to init.\n");
         return err;
     }
-
+    debug_printf("check2\n");
     // 1. get pid_count
     event_dispatch(get_default_waitset());
     *pid_count = chan->msg_buf[0];
-    clean_aos_rpc_msgbuf(chan);
-
-    *pids = (domainid_t *) malloc(*pid_count * sizeof(domainid_t));
-
+    debug_printf("check3, pid_count: %d\n", *pid_count);    
+    // clean_aos_rpc_msgbuf(chan);
+    err = paging_alloc(get_current_paging_state(),
+                       (void**) pids,
+                       *pid_count * sizeof(domainid_t));
+    if (err_is_fail(err)){
+        // FIXME push err to stack and return
+        err_print_calltrace(err);
+        abort();
+    }
+    
+    domainid_t *pids_deref = *pids;
+    
+    debug_printf("check4\n");
     // 2. for each pid, we dispatch event.
     for (size_t i = 0; i < *pid_count; i++) {
+        debug_printf("%d/%d\n", i, *pid_count);
         event_dispatch(get_default_waitset());
-        *pids[i] = chan->msg_buf[0];
-        clean_aos_rpc_msgbuf(chan);
+        debug_printf("for clause\n");
+        debug_printf("chan->msg_buf[0]: %d\n", chan->msg_buf[0]);
+        debug_printf("pids_deref[i]: %d\n", pids_deref[i]);
+        pids_deref[i] = chan->msg_buf[0];
     }
-
+    debug_printf("check5\n");
     return SYS_ERR_OK;
 }
 
@@ -540,7 +555,8 @@ errval_t aos_rpc_init(struct aos_rpc *rpc)
     // cap should be in rpc->return_cap
     debug_printf("Waiting for response from init\n");
     event_dispatch(get_default_waitset());
-
+    debug_printf("Connection to init setup.\n");
+    
     return SYS_ERR_OK;
 }
 
