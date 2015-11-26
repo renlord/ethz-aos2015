@@ -267,6 +267,8 @@ errval_t elf32_load(uint16_t em_machine, elf_allocator_fn allocate_func,
         return ELF_ERR_PROGHDR;
     }
 
+    printf("elf 1\n");
+
     struct Elf32_Shdr *shead =
         (struct Elf32_Shdr *)(base + (uintptr_t)head->e_shoff);
     struct Elf32_Shdr *rela =
@@ -322,6 +324,7 @@ errval_t elf32_load(uint16_t em_machine, elf_allocator_fn allocate_func,
             break;
         }
     }
+    printf("elf 2\n");
 
     genvaddr_t tls_base = 0;
     size_t tls_init_len = 0, tls_total_len = 0;
@@ -331,20 +334,26 @@ errval_t elf32_load(uint16_t em_machine, elf_allocator_fn allocate_func,
         struct Elf32_Phdr *p = &phead[i];
 
         if (p->p_type == PT_LOAD) {
+            printf("elf 2-1\n");
             // Map segment in user-space memory
             void *dest = NULL;
             err = allocate_func(state, p->p_vaddr, p->p_memsz, p->p_flags, &dest);
             if (err_is_fail(err)) {
                 return err_push(err, ELF_ERR_ALLOCATE);
             }
+            printf("elf 2-2\n");
             assert(dest != NULL);
 
             // Copy file segment into memory
             memcpy(dest, (void *)(base + (uintptr_t)p->p_offset), p->p_filesz);
 
             // Initialize rest of memory segment (ie. BSS) with all zeroes
+            //TODO: PROBLEM HERE!
+            printf("addr of dest: 0x%08x\n", dest + p->p_filesz);
+            printf("number of bytes: 0x%08x\n", p->p_memsz - p->p_filesz);
             memset((char *)dest + p->p_filesz, 0, p->p_memsz - p->p_filesz);
-
+            printf("elf 2-3\n");
+            
             // Apply relocations
             if (rela != NULL && symtab != NULL) {
                 elf32_relocate(p->p_vaddr, p->p_vaddr,
@@ -355,6 +364,7 @@ errval_t elf32_load(uint16_t em_machine, elf_allocator_fn allocate_func,
                                (base + (uintptr_t)symtab->sh_offset),
                                symtab->sh_size, p->p_vaddr, dest);
             }
+            printf("elf 2-4\n");
         } else if (p->p_type == PT_TLS) {
             assert(p->p_vaddr != 0);
             assert(tls_base == 0); // if not we have multiple TLS sections!
@@ -363,6 +373,8 @@ errval_t elf32_load(uint16_t em_machine, elf_allocator_fn allocate_func,
             tls_total_len = p->p_memsz;
         }
     }
+
+    printf("elf 3\n");
 
     if (retentry != NULL) {
         *retentry = head->e_entry;

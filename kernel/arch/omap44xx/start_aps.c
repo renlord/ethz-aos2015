@@ -60,5 +60,9 @@ int start_aps_arm_start(uint8_t core_id, lpaddr_t entry)
 	send_event();
 
     printk(LOG_NOTE, "start_aps_arm_start \n");
+#if 0
+    printk(LOG_NOTE, "holding core boot core\n");
+    while(true);
+#endif
     return SYS_ERR_OK;
 }

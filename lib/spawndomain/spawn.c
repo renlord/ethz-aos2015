@@ -986,12 +986,6 @@ cpu_memory_prepare(struct spawninfo *si,
     return SYS_ERR_OK;
 }
 
-errval_t
-spawn_core_with_kernel(struct spawninfo *si, 
-                       struct bootinfo *bi,
-                       coreid_t coreid,
-                       const char *cmdline,
-                       struct capref kern_cap);
 errval_t 
 spawn_core_with_kernel(struct spawninfo *si, 
                        struct bootinfo *bi,
@@ -1037,7 +1031,7 @@ spawn_core_with_kernel(struct spawninfo *si,
     }
 
     /* Prepare CPU Kernel Address Space */ 
-    //assert(sizeof(struct arm_core_data) <= BASE_PAGE_SIZE);
+    assert(sizeof(struct arm_core_data) <= BASE_PAGE_SIZE);
     struct {
         size_t                  size;
         struct capref           cap;
@@ -1069,6 +1063,15 @@ spawn_core_with_kernel(struct spawninfo *si,
         return err;
     }
 
+    // genvaddr_t entry;
+    // void *arch_info;
+    // err = spawn_arch_load(si, binary, binary_size, &entry, &arch_info);
+    // if (err_is_fail(err)) {
+    //     DEBUG_ERR(err, "fail arch load\n");
+    //     err_print_calltrace(err);   
+    //     return err;
+    // }
+
     /* Chunk of memory to load on the app core */
     struct capref spawn_mem_cap;
     struct frame_identity spawn_mem_frameid;
@@ -1081,7 +1084,7 @@ spawn_core_with_kernel(struct spawninfo *si,
     }
 
     /* Setup the core_data struct in the new kernel */
-    struct arm_core_data *core_data = (struct arm_core_data *)cpu_mem.buf;
+    struct arm_core_data *core_data = (struct arm_core_data *) cpu_mem.buf;
 
     struct Elf32_Ehdr *head32 = (struct Elf32_Ehdr *)binary;
     core_data->elf.size = sizeof(struct Elf32_Shdr);
@@ -1112,7 +1115,7 @@ spawn_core_with_kernel(struct spawninfo *si,
     /* Invoke kernel capability to boot new core */
     // XXX: Confusion address translation about l/gen/addr
     int hwid = 1;
-    err = invoke_monitor_spawn_core(hwid, CPU_ARM, (forvaddr_t)reloc_entry,
+    err = invoke_monitor_spawn_core(hwid, CPU_ARM, (forvaddr_t) reloc_entry,
                                     kern_cap);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "failed to spawn app core\n");

@@ -726,6 +726,14 @@ int main(int argc, char *argv[])
     //     DEBUG_ERR(err, "failed to boot 2nd core from init");
     //     abort();
     // }
+
+    // boot second core
+    struct spawninfo si;
+    err = spawn_core_with_kernel(&si, bi, 1, NULL, cap_kernel);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "fail to boot 2nd core and load kernel\n");
+        abort();
+    }
     
     int *int_buf = (int *)malloc(1000);
     for (uint32_t i = 0; i < 1000; i++) {
