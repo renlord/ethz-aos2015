@@ -49,7 +49,7 @@ static volatile uint32_t *uart3_fcr = NULL;
 static volatile uint32_t *uart3_lsr = NULL;
 
 static errval_t spawn(const char *name, domainid_t *pid);
-static errval_t get_all_pids(struct lmp_chan *lc);
+static errval_t get_all_pids(struct client_state *lc);
 static const char *get_pid_name(domainid_t pid);
 static size_t get_pids_count(void);
 static errval_t reply_string(struct lmp_chan *lc, const char *string);
@@ -439,7 +439,7 @@ void recv_handler(void *lc_in)
                 err_print_calltrace(err);
                 return;
             }
-            err = get_all_pids(lc);
+            err = get_all_pids(cs);
             if (err_is_fail(err)) {
                 DEBUG_ERR(err, "failed to get all pids event.\n");
                 err_print_calltrace(err);
@@ -521,6 +521,8 @@ static errval_t spawn(const char *name, domainid_t *pid)
     new_state->next_event = NOP_CLOSURE;
     stack_push(new_state);
 
+    // bi = (struct bootinfo *)malloc(sizeof(struct bootinfo));
+    
     // concat name with path
     const char *path = "armv7/sbin/"; // size 11
     char concat_name[strlen(name) + 11];
@@ -529,6 +531,7 @@ static errval_t spawn(const char *name, domainid_t *pid)
     memcpy(&concat_name[strlen(path)], name, strlen(name)+1);
     
     struct mem_region *mr = multiboot_find_module(bi, concat_name);
+    debug_printf("mem_region 0x%08x\n", mr);
     if (mr == NULL){
         // FIXME convert this to user space printing
         printf("Could not spawn '%s': Program does not exist.\n", name);
@@ -536,16 +539,15 @@ static errval_t spawn(const char *name, domainid_t *pid)
     }
 
     char *argv[1];
-    argv[0] = "";
+    argv[0] = NULL;
     
     char *envp[1];
-    envp[0] = "";
+    envp[0] = NULL;
     
     struct spawninfo si;
-    debug_printf("prior\n");
+
     errval_t err = spawn_load_with_args(&si, mr, concat_name, disp_get_core_id(),
             argv, envp);
-    debug_printf("post\n");
 
     if (err_is_fail(err)) {
         debug_printf("Failed spawn image: %s\n", err_getstring(err));
@@ -566,6 +568,7 @@ static errval_t spawn(const char *name, domainid_t *pid)
         return err;
     }
 
+    debug_printf("calling spawn_run\n");
     err = spawn_run(&si);
     if (err_is_fail(err)) {
         debug_printf("Failed spawn image: %s\n", err_getstring(err));
@@ -573,11 +576,23 @@ static errval_t spawn(const char *name, domainid_t *pid)
         return err;
     }
 
+    debug_printf("spawn_run returned\n");
     err = spawn_free(&si);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "failed to free memeater domain from init memory\n");
         return err;
     }
+    
+    // struct capref frame = {
+    //     .cnode = cnode_module,
+    //     .slot  = mr->mrmod_slot,
+    // };
+    //
+    // err = cap_destroy(frame);
+    // if (err_is_fail(err)){
+    //     err_print_calltrace(err);
+    //     abort();
+    // }
     
     return SYS_ERR_OK;
 }
@@ -593,17 +608,30 @@ static size_t get_pids_count(void)
     return n;
 }
 
-static errval_t get_all_pids(struct lmp_chan *lc)
+static errval_t get_all_pids(struct client_state *cs)
 {
     struct process *temp = fst_process;
     while (temp != NULL) {
-        errval_t err = lmp_chan_send2(lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
-                PROCESS_GET_ALL_PIDS, temp->pid);
+        // errval_t err =
+        //     lmp_chan_send2(cs, LMP_SEND_FLAGS_DEFAULT, NULL_CAP,
+        //         PROCESS_GET_ALL_PIDS, temp->pid);
+        cs->send_msg[0] = PROCESS_GET_ALL_PIDS;
+        cs->send_msg[1] = temp->pid;
+        cs->send_cap = NULL_CAP;
+        errval_t err = lmp_chan_register_send(cs->lc, get_default_waitset(),
+            MKCLOSURE(send_handler, cs));
         if (err_is_fail(err)) {
-            DEBUG_ERR(err, "fail to send one of many pids.\n");
-            err_print_calltrace(err);
-            return err;
+            debug_printf("Could not register for sending pid\n");
+            break;
+        } else {
+            event_dispatch(get_default_waitset());
         }
+                
+        // if (err_is_fail(err)) {
+        //     DEBUG_ERR(err, "fail to send one of many pids.\n");
+        //     err_print_calltrace(err);
+        //     return err;
+        // }
     }
 
     return SYS_ERR_OK;
@@ -770,6 +798,34 @@ int main(int argc, char *argv[])
 
     debug_printf("cap_initep, cap_selfep OK.\n");
 
+    size_t offset = OMAP44XX_MAP_L4_PER_UART3 - 0x40000000;
+    // lvaddr_t uart_addr = (1UL << 28);
+    lvaddr_t uart_addr;
+    paging_alloc(get_current_paging_state(), (void**)&uart_addr,
+        OMAP44XX_MAP_L4_PER_UART3_SIZE);
+    struct capref copy;
+    err = devframe_type(&copy, cap_io, 30);
+    if (err_is_fail(err)){
+        debug_printf("Could not copy capref: %s\n", err_getstring(err));
+        err_print_calltrace(err);
+        abort();
+    }
+
+    err = paging_map_user_device(get_current_paging_state(), uart_addr,
+                            copy, offset, OMAP44XX_MAP_L4_PER_UART3_SIZE,
+                            VREGION_FLAGS_READ_WRITE_NOCACHE);
+
+
+    if (err_is_fail(err)) {
+        debug_printf("Could not map io cap: %s\n", err_getstring(err));
+        err_print_calltrace(err);
+        abort();
+    } else {
+        debug_printf("cap_io mapped OK.\n");
+    }
+
+    set_uart3_registers(uart_addr);
+
     // Technically, we would just like to spawn a shell process and that's it.
     // TODO
 
@@ -785,61 +841,11 @@ int main(int argc, char *argv[])
     } else {
         debug_printf("Done\n");
     }
-    // event_dispatch(get_default_waitset());
-    // event_dispatch(get_default_waitset());
-    // unsigned long us = (int) (float)(1UL << 26)*10;
-
-    // while (us-- > 0)
-    // {
-    //     __asm volatile("nop");
-    // }
-    
-    // // event_dispatch(get_default_waitset());
-    // debug_printf("Spawning blink...\n");
-    // err = spawn("blink", &memeater_pid);
-    // if (err_is_fail(err)) {
-    //     DEBUG_ERR(err, "failed to spawn blink\n");
-    // } else {
-    //     debug_printf("Done\n");
-    // }
-
-
-
-    // size_t offset = OMAP44XX_MAP_L4_PER_UART3 - 0x40000000;
-    // // lvaddr_t uart_addr = (1UL << 28);
-    // lvaddr_t uart_addr;
-    // paging_alloc(get_current_paging_state(), (void**)&uart_addr,
-    //     OMAP44XX_MAP_L4_PER_UART3_SIZE);
-    // struct capref copy;
-    // err = devframe_type(&copy, cap_io, 30);
-    // if (err_is_fail(err)){
-    //     debug_printf("Could not copy capref: %s\n", err_getstring(err));
-    //     err_print_calltrace(err);
-    //     abort();
-    // }
-    //
-    // err = paging_map_user_device(get_current_paging_state(), uart_addr,
-    //                         copy, offset, OMAP44XX_MAP_L4_PER_UART3_SIZE,
-    //                         VREGION_FLAGS_READ_WRITE_NOCACHE);
-    //
-    //
-    // if (err_is_fail(err)) {
-    //     debug_printf("Could not map io cap: %s\n", err_getstring(err));
-    //     err_print_calltrace(err);
-    //     abort();
-    // } else {
-    //     debug_printf("cap_io mapped OK.\n");
-    // }
-    //
-    // set_uart3_registers(uart_addr);
-
     
     
     void *c = stack_pop;
     c = stack_push;
     c=c;
-
-    debug_printf("init domain_id: %d\n", disp_get_domain_id());
 
     debug_printf("Entering dispatch loop\n");
     while(true) {

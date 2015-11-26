@@ -62,7 +62,7 @@ static void set_gpio1_registers(lvaddr_t base)
 int main(int argc, char *argv[])
 {
     debug_printf("%s, pid: %u\n", disp_name(), disp_get_domain_id());
-    return 0;
+
     delayus_t blink_rate = ((argc > 1) ? atoi(argv[1]) : 1) * 10000; 
     uint32_t no_of_blinks = (argc > 2) ? atoi(argv[2]) : 10; 
 

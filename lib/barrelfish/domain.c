@@ -411,7 +411,6 @@ static int remote_core_init_enabled(void *arg)
     errval_t err;
     struct remote_core_state *remote_core_state =
         (struct remote_core_state*)arg;
-    debug_printf("check 1\n");
     /* Initialize the barrelfish library */
     err = barrelfish_init_onthread(NULL);
     if (err_is_fail(err)) {
@@ -419,7 +418,7 @@ static int remote_core_init_enabled(void *arg)
         abort();
         return -1;
     }
-    debug_printf("check 2\n");
+
     // Connect to all dispatchers eagerly
     remote_core_state->cnt = 0;
     while(allirefs[remote_core_state->cnt] == NULL_IREF && remote_core_state->cnt < MAX_CPUS) {

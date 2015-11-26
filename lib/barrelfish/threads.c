@@ -1334,6 +1334,7 @@ void thread_deliver_exception_disabled(dispatcher_handle_t handle,
                                        enum exception_type type, int subtype,
                                        void *addr, arch_registers_state_t *regs)
 {
+    debug_printf("thread_deliver_exception_disabled called\n");
     struct dispatcher_generic *disp_gen = get_dispatcher_generic(handle);
     struct thread *thread = disp_gen->current;
     assert_disabled(thread != NULL);

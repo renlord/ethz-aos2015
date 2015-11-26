@@ -230,6 +230,26 @@ static void cli_demo(void)
             } // else {
  //                debug_printf("Spawned program '%s' with pid %d\n", argv[0], new_pid);
  //            }
+        } else if (strcmp(argv[0], "ps") == 0) {
+            domainid_t *pids;
+            size_t pid_count;
+            errval_t err =
+                aos_rpc_process_get_all_pids(&local_rpc, &pids, &pid_count);
+            
+            if(err_is_fail(err)){
+                err_print_calltrace(err);
+                abort();
+            }
+            
+            char count_buf[25];
+            sprintf(count_buf, "Number of processes: %d", pid_count);
+            print_line(count_buf);
+            
+            for(uint32_t j = 0; j < pid_count; j++){
+                char pid_buf[8];
+                sprintf(pid_buf, "%d. %d", j, pids[j]);
+                print_line(pid_buf);
+            }
         } else if (strcmp(argv[0], "exit") == 0) {
             print_line("exiting shell... goodbye\r\n");
             print_line("======== END BASIC SHELL ========\r\n");
@@ -246,11 +266,10 @@ int main(int argc, char *argv[])
 {
     debug_printf("memeater started\n");
     debug_printf("%s, pid: %u\n", disp_name(), disp_get_domain_id());
-
-    while(true);
-    uint32_t pid;
-    aos_rpc_process_spawn(&local_rpc, "blink", &pid);
-
+    
+    void *buf;
+    paging_alloc(get_current_paging_state(), &buf, 0x60000);
+    *((int *)buf) = 1;
     debug_printf("Running Command Line Interface Demo...\n");
     cli_demo();
     debug_printf("Done\n\n");
