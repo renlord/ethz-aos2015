@@ -173,9 +173,7 @@ static void scan_line(char *buf)
 static void join(char *argv[], char *argv_string, uint32_t argc);
 static void join(char *argv[], char *argv_string, uint32_t argc){
     uint32_t len;
-    debug_printf("pre loop\n");
     for(uint32_t i = 0, n = 0; i < argc; i++, n += len){
-        debug_printf("it %d\n", i);
         sprintf(&argv_string[n], "%s ", argv[i]);
         len = strlen(argv[i]) + 1;
     }
@@ -213,12 +211,7 @@ static void cli_demo(void)
     print_line("======== BEGIN BASIC SHELL ==========\r\n");
     while (true) {
         scan_line(input_buf);
-        // void *hack = scan_line;
-        // hack = hack;
-        
-        // sprintf(input_buf, "spawn blink 5 20"); // TODO remove
         parse_cli_cmd(input_buf, argv, &argc);
-        debug_printf("input buf: >>%s<<\n", input_buf);
         
         if (strcmp(argv[0], "echo") == 0) {
 
@@ -305,9 +298,6 @@ int main(int argc, char *argv[])
     debug_printf("memeater started\n");
     debug_printf("%s, pid: %u\n", disp_name(), disp_get_domain_id());
     
-    void *buf;
-    paging_alloc(get_current_paging_state(), &buf, 0x60000);
-    *((int *)buf) = 1;
     debug_printf("Running Command Line Interface Demo...\n");
     cli_demo();
     debug_printf("Done\n\n");
