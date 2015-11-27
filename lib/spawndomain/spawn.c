@@ -476,7 +476,6 @@ static errval_t spawn_setup_env(struct spawninfo *si,
         return err_push(err, SPAWN_ERR_CREATE_ARGSPG);
     }
 
-    debug_printf("calling spawn_vspace_map_one_frame\n");
     /* Map in args frame */
     genvaddr_t spawn_args_base;
     err = spawn_vspace_map_one_frame(si, &spawn_args_base, spawn_argspg, ARGS_SIZE);
@@ -485,18 +484,12 @@ static errval_t spawn_setup_env(struct spawninfo *si,
     }
 
     void *argspg;
-    debug_printf("calling paging_map_frame with args &argspg 0x%08x, ARGS_SIZE %d\n", &argspg, ARGS_SIZE);
-    char cap_buf[30];
-    debug_print_capref(cap_buf, 29, si->argspg);
-    cap_buf[29] = '\0';
-    debug_printf("si->argspg: %s\n", cap_buf);
-    
     err = paging_map_frame(get_current_paging_state(), &argspg, ARGS_SIZE,
             si->argspg, NULL, NULL);
     if (err_is_fail(err)) {
         return err_push(err, SPAWN_ERR_MAP_ARGSPG_TO_SELF);
     }
-    debug_printf("spawn level, paging_map_frame returned\n");
+
     /* Layout of arguments page:
      *   struct spawn_domain_params; // contains pointers to other fields
      *   char buf[]; // NUL-terminated strings for arguments and environment
@@ -510,7 +503,6 @@ static errval_t spawn_setup_env(struct spawninfo *si,
     int i;
     size_t len;
     for (i = 0; argv[i] != NULL; i++) {
-        debug_printf("i %d: %s\n", i, argv[i]);
         len = strlen(argv[i]) + 1;
         if (len > buflen) {
             return SPAWN_ERR_ARGSPG_OVERFLOW;
@@ -523,7 +515,6 @@ static errval_t spawn_setup_env(struct spawninfo *si,
     assert(i <= MAX_CMDLINE_ARGS);
     int argc = i;
     params->argv[i] = NULL;
-    debug_printf("copied commandline arguments\n");
 
     /* Copy environment strings */
     for (i = 0; envp[i] != NULL; i++) {
@@ -536,7 +527,6 @@ static errval_t spawn_setup_env(struct spawninfo *si,
         buf += len;
         buflen -= len;
     }
-    debug_printf("copied environment strings\n");
 
     assert(i <= MAX_ENVIRON_VARS);
     params->envp[i] = NULL;
@@ -559,13 +549,11 @@ static errval_t spawn_setup_env(struct spawninfo *si,
     params->vspace_buf = (char *)vspace_buf - (char *)argspg
                     + (char *)(lvaddr_t)spawn_args_base;
     params->vspace_buf_len = buflen;
-    debug_printf("set environment pointer\n");
 
     // Setup TLS data
     params->tls_init_base = (void *)paging_genvaddr_to_lvaddr(si->tls_init_base);
     params->tls_init_len = si->tls_init_len;
     params->tls_total_len = si->tls_total_len;
-    debug_printf("set tls data\n");
 
     arch_registers_state_t *enabled_area =
         dispatcher_get_enabled_save_area(si->handle);
@@ -676,29 +664,24 @@ errval_t spawn_load_with_args(struct spawninfo *si, struct mem_region *module,
     /* Lookup and map the elf image */
     lvaddr_t binary;
     size_t binary_size;
-    genpaddr_t ret_addr;
-    debug_printf("spawn_map_module called\n");
-    err = spawn_map_module(module, &binary_size, &binary, &ret_addr);
+    err = spawn_map_module(module, &binary_size, &binary, NULL);
     //err = spawn_map(name, bi, &binary, &binary_size);
     if (err_is_fail(err)) {
         return err_push(err, SPAWN_ERR_ELF_MAP);
     }
 
-    debug_printf("spawn_determine_cputype called\n");
     /* Determine cpu type */
     err = spawn_determine_cputype(si, binary);
     if (err_is_fail(err)) {
         return err_push(err, SPAWN_ERR_DETERMINE_CPUTYPE);
     }
 
-    debug_printf("spawn_setup_cspace called\n");
     /* Initialize cspace */
     err = spawn_setup_cspace(si);
     if (err_is_fail(err)) {
         return err_push(err, SPAWN_ERR_SETUP_CSPACE);
     }
 
-    debug_printf("spawn_setup_vspace called\n");
     /* Initialize vspace */
     err = spawn_setup_vspace(si);
     if (err_is_fail(err)) {
@@ -709,29 +692,22 @@ errval_t spawn_load_with_args(struct spawninfo *si, struct mem_region *module,
     genvaddr_t entry;
     void* arch_info;
 
-    debug_printf("spawn_arch_load called\n");
     err = spawn_arch_load(si, binary, binary_size, &entry, &arch_info);
     if (err_is_fail(err)) {
         return err_push(err, SPAWN_ERR_LOAD);
     }
 
-    debug_printf("spawn_setup_dispatcher called\n");
     /* Setup dispatcher frame */
     err = spawn_setup_dispatcher(si, coreid, name, entry, arch_info);
     if (err_is_fail(err)) {
         return err_push(err, SPAWN_ERR_SETUP_DISPATCHER);
     }
 
-    debug_printf("spawn_setup_env called\n");
     /* Setup cmdline args */
     err = spawn_setup_env(si, argv, envp);
     if (err_is_fail(err)) {
         return err_push(err, SPAWN_ERR_SETUP_ENV);
     }
-    debug_printf("spawn_setup_env done\n");
-    
-    // unmap bootinfo module pages
-    spawn_unmap_module(binary);
 
     return SYS_ERR_OK;
 }

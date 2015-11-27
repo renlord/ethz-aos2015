@@ -61,10 +61,10 @@ struct node {
 struct paging_state {
     struct node *root;
     struct node *next_node;
-    struct node all_nodes[ARM_L1_MAX_ENTRIES*10];
     
     struct capref l1_cap;
     struct capref l2_caps[ARM_L1_USER_ENTRIES];
+    struct node all_nodes[ARM_L1_MAX_ENTRIES*10];
     // struct capref frame_caps[NO_OF_FRAMES];
     // struct capref *next_frame;
     // struct capref guard_cap;

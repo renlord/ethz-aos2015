@@ -48,8 +48,8 @@ static volatile uint32_t *uart3_rhr = NULL;
 static volatile uint32_t *uart3_fcr = NULL;
 static volatile uint32_t *uart3_lsr = NULL;
 
-static errval_t spawn(const char *name, domainid_t *pid);
-static errval_t get_all_pids(struct client_state *lc);
+static errval_t spawn(char *name, domainid_t *pid);
+static errval_t get_pid_at_index(uint32_t idx, domainid_t *pid);
 static const char *get_pid_name(domainid_t pid);
 static size_t get_pids_count(void);
 static errval_t reply_string(struct lmp_chan *lc, const char *string);
@@ -120,6 +120,27 @@ errval_t serial_get_char(char *c)
     *c = (char)*uart3_rhr;
     return SYS_ERR_OK;
 }
+
+static void parse_cmd_args(char *str, char **argv, uint32_t *args);
+static void parse_cmd_args(char *str, char **argv, uint32_t *args)
+{
+    char *tok; 
+    int i;
+    const char *delim = " ";
+
+    tok = strtok(str, delim);
+    
+    if (tok != NULL) {
+        argv[0] = tok; 
+    }
+
+    for (i = 1; (tok = strtok(NULL, delim)) != NULL; i++) {
+        argv[i] = tok;
+    }
+
+    *args = i;
+}
+
 
 void send_handler(void *client_state_in)
 {
@@ -197,8 +218,6 @@ void recv_handler(void *lc_in)
         // a new channel for future communication
         case REQUEST_CHAN:
         {
-            debug_printf("client_stack:     0x%08x\n", client_stack);
-            debug_printf("client_stack->lc: 0x%08x\n", client_stack->lc);
             
             if (capref_is_null(remote_cap)) {
                 debug_printf("Received endpoint cap was null.\n");
@@ -226,7 +245,6 @@ void recv_handler(void *lc_in)
             new_chan->local_cap = ep_cap;
             new_chan->remote_cap = remote_cap;
             new_chan->endpoint = my_ep;
-            debug_printf("init handed out channel 0x%08x\n", new_chan->endpoint);
 
             err = lmp_chan_alloc_recv_slot(new_chan);
             if (err_is_fail(err)) {
@@ -274,9 +292,6 @@ void recv_handler(void *lc_in)
                  cs->char_count++;
                  
                  if (msg.buf.words[i] == '\0') {
-                    debug_printf("Text msg received: %s\n",
-                        cs->mailbox);
-                    
                     cs->char_count = 0;
                     
                     // TODO actually handle receiving a msg
@@ -429,27 +444,41 @@ void recv_handler(void *lc_in)
             if (err_is_fail(err)) {
                 DEBUG_ERR(err, "failed to reply PROCESS_GET_NAME event.\n");
                 err_print_calltrace(err);
-                return;
+                abort();
             }
 
             break;
         }
 
-        case PROCESS_GET_ALL_PIDS:
+        case PROCESS_GET_NO_OF_PIDS:
         {
-            err = lmp_chan_send2(lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
-                    PROCESS_GET_ALL_PIDS, get_pids_count());
+            // 3. we inform client if app spawn is successful or not.
+            reply = true;
+            cs->send_msg[0] = PROCESS_GET_NO_OF_PIDS;
+            cs->send_msg[1] = get_pids_count();
+            cs->send_msg[2] = '\0';
+            cs->send_cap = NULL_CAP;
+
+            break;
+        }
+        
+        case PROCESS_GET_PID:
+        {
+            uint32_t idx = msg.buf.words[1];
+            domainid_t pid;
+            err = get_pid_at_index(idx, &pid);
             if (err_is_fail(err)) {
-                DEBUG_ERR(err, "failed to get pids count.\n");
+                DEBUG_ERR(err, "Failed to get pid no %d.\n", idx);
                 err_print_calltrace(err);
-                return;
+                abort();
             }
-            err = get_all_pids(cs);
-            if (err_is_fail(err)) {
-                DEBUG_ERR(err, "failed to get all pids event.\n");
-                err_print_calltrace(err);
-                return;
-            }
+            
+            reply = true;
+            cs->send_msg[0] = PROCESS_GET_PID;
+            cs->send_msg[1] = pid;
+            cs->send_msg[2] = '\0';
+            cs->send_cap = NULL_CAP;
+
             break;
         }
 
@@ -463,12 +492,14 @@ void recv_handler(void *lc_in)
     
     if(reply){
         if(cs == client_stack){
-            err = lmp_chan_register_send(lc_in, get_default_waitset(),
-                                         MKCLOSURE(send_handler, cs));
-            if (err_is_fail(err)) {
-                debug_printf("Could not register for sending\n");
-                return;
-            }
+            do {
+                err = lmp_chan_register_send(lc_in, get_default_waitset(),
+                                             MKCLOSURE(send_handler, cs));
+                if (err_is_fail(err)) {
+                    debug_printf("Could not register for sending\n");
+                }
+            } while(err_is_fail(err));
+            
         } else {
             cs->next_event = MKCLOSURE(send_handler, cs);
         }
@@ -515,7 +546,7 @@ void my_read(void)
     }
 }
 
-static errval_t spawn(const char *name, domainid_t *pid)
+static errval_t spawn(char *name, domainid_t *pid)
 {
     struct client_state *new_state =
         (struct client_state *) malloc(sizeof(struct client_state));
@@ -526,7 +557,19 @@ static errval_t spawn(const char *name, domainid_t *pid)
     new_state->next_event = NOP_CLOSURE;
     stack_push(new_state);
 
-    // bi = (struct bootinfo *)malloc(sizeof(struct bootinfo));
+    char *argv[20];
+    uint32_t argc;
+    parse_cmd_args(name, argv, &argc);
+    if (argc >= 20){
+        debug_printf("Too many spawn arguments.\n");
+        abort();
+    }
+    
+    argv[argc] = NULL;
+    
+    char *envp[20];
+    envp[0] = NULL;
+    
     
     // concat name with path
     const char *path = "armv7/sbin/"; // size 11
@@ -536,18 +579,13 @@ static errval_t spawn(const char *name, domainid_t *pid)
     memcpy(&concat_name[strlen(path)], name, strlen(name)+1);
     
     struct mem_region *mr = multiboot_find_module(bi, concat_name);
-    debug_printf("mem_region 0x%08x\n", mr);
+
     if (mr == NULL){
         // FIXME convert this to user space printing
-        printf("Could not spawn '%s': Program does not exist.\n", name);
+        debug_printf("Could not spawn '%s': Program does not exist.\n", name);
+        free(stack_pop());
         return SYS_ERR_OK;
     }
-
-    char *argv[1];
-    argv[0] = NULL;
-    
-    char *envp[1];
-    envp[0] = NULL;
     
     struct spawninfo si;
     si.domain_id = ++pid_counter;
@@ -592,7 +630,6 @@ static errval_t spawn(const char *name, domainid_t *pid)
         return err;
     }
 
-    //debug_printf("spawn_run returned\n");
     err = spawn_free(&si);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "failed to free memeater domain from init memory\n");
@@ -624,32 +661,17 @@ static size_t get_pids_count(void)
     return n;
 }
 
-static errval_t get_all_pids(struct client_state *cs)
+static errval_t get_pid_at_index(uint32_t idx, domainid_t *pid)
 {
-    struct process *temp = fst_process;
-    while (temp != NULL) {
-        // errval_t err =
-        //     lmp_chan_send2(cs, LMP_SEND_FLAGS_DEFAULT, NULL_CAP,
-        //         PROCESS_GET_ALL_PIDS, temp->pid);
-        cs->send_msg[0] = PROCESS_GET_ALL_PIDS;
-        cs->send_msg[1] = temp->pid;
-        cs->send_cap = NULL_CAP;
-        errval_t err = lmp_chan_register_send(cs->lc, get_default_waitset(),
-            MKCLOSURE(send_handler, cs));
-        if (err_is_fail(err)) {
-            debug_printf("Could not register for sending pid\n");
-            break;
-        } else {
-            event_dispatch(get_default_waitset());
-        }
-                
-        // if (err_is_fail(err)) {
-        //     DEBUG_ERR(err, "fail to send one of many pids.\n");
-        //     err_print_calltrace(err);
-        //     return err;
-        // }
-    }
+    assert(fst_process);
+    struct process *current = fst_process;
 
+    for (uint32_t j = 1; j < idx; j++) {
+        current = current->next;
+        assert(current != NULL);
+    }
+    
+    *pid = current->pid;
     return SYS_ERR_OK;
 }
 

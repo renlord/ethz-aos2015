@@ -170,6 +170,17 @@ static void scan_line(char *buf)
     }
 }
 
+static void join(char *argv[], char *argv_string, uint32_t argc);
+static void join(char *argv[], char *argv_string, uint32_t argc){
+    uint32_t len;
+    debug_printf("pre loop\n");
+    for(uint32_t i = 0, n = 0; i < argc; i++, n += len){
+        debug_printf("it %d\n", i);
+        sprintf(&argv_string[n], "%s ", argv[i]);
+        len = strlen(argv[i]) + 1;
+    }
+}
+
 static void parse_cli_cmd(char *str, char **argv, int *args, 
                             bool *background_run);
 static void parse_cli_cmd(char *str, char **argv, int *args, 
@@ -216,15 +227,15 @@ static void cli_demo(void)
         // for (i = 0; i < args; i++) {
         //     debug_printf("%s\n", argv[i]);
         // }
-
+        debug_printf("input buf: >>%s<<\n", input_buf);
         if (strcmp(argv[0], "echo") == 0) {
 
-            if (args < 2) {
+            if (argc < 2) {
                 print_line("Insufficient arguments for echo command!\r\n");
                 continue;
             }
 
-            for (i = 1; i < args-1; i++) {
+            for (i = 1; i < argc-1; i++) {
                 print_line(argv[i]);
                 print_line(" ");
             }
@@ -233,7 +244,7 @@ static void cli_demo(void)
 
         } else if (strcmp(argv[0], "run_memtest") == 0) {
 
-            if (args != 2) {
+            if (argc != 2) {
                 print_line("Insufficient argument size for run_memeater command!\r\n");
                 continue;
             }
@@ -241,20 +252,22 @@ static void cli_demo(void)
             print_line("Running Small Chump Memory Test...\r\n");
             perform_array_test(SMALL_CHUMP_SIZE, atoi(argv[1]));
             print_line("Memory Test Completed.\r\n");
-            // run memeater test;
-            // debug_printf("Performing small chump test...\n");
-            // perform_array_test(SMALL_CHUMP_SIZE, SMALL_CHUMP_ARRAY_SIZE);
-            // debug_printf("Done\n\n");
 
         } else if (strcmp(argv[0], "spawn") == 0) {
             domainid_t new_pid;
-            errval_t err = aos_rpc_process_spawn(&local_rpc, argv[1], &new_pid);
+            
+            // FIXME ugly
+            char argv_str[256];
+            memset(argv_str, '\0', 256);
+            join(&argv[1], argv_str, argc-1);
+
+            debug_printf("argv_str: %s\n", argv_str);
+
+            errval_t err = aos_rpc_process_spawn(&local_rpc, argv_str, &new_pid);
             if(err_is_fail(err)){
                 err_print_calltrace(err);
                 abort();
-            } // else {
- //                debug_printf("Spawned program '%s' with pid %d\n", argv[0], new_pid);
- //            }
+            }
         } else if (strcmp(argv[0], "ps") == 0) {
             domainid_t *pids;
             size_t pid_count;
@@ -267,17 +280,23 @@ static void cli_demo(void)
             }
             
             char count_buf[25];
-            sprintf(count_buf, "Number of processes: %d", pid_count);
+            const char *divide = "+--------------------------+\n\r";
+            sprintf(count_buf,   "| Number of processes: %*d |\n\r",
+                3, pid_count);
+
+            print_line(divide);
             print_line(count_buf);
+            print_line(divide);
+
             
             for(uint32_t j = 0; j < pid_count; j++){
-                char pid_buf[8];
-                sprintf(pid_buf, "%d. %d", j, pids[j]);
+                char pid_buf[32];
+                sprintf(pid_buf, "| %*d. %*d                 |\n\r",
+                    3, j, 3, pids[j]);
                 print_line(pid_buf);
             }
-
+            print_line(divide);
         } else if (strcmp(argv[0], "kill") == 0) {
-            
             
         } else if (strcmp(argv[0], "exit") == 0) {
             print_line("exiting shell... goodbye\r\n");
