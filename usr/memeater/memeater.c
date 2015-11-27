@@ -267,7 +267,7 @@ static void cli_demo(void)
                 err_print_calltrace(err);
                 abort();
             }
-        } else if (strcmp(argv[0], "ps") == 0) {
+        } else if (strncmp(argv[0], "ps", 2) == 0) {
             domainid_t *pids;
             size_t pid_count;
             errval_t err =
@@ -289,9 +289,12 @@ static void cli_demo(void)
 
             
             for(uint32_t j = 0; j < pid_count; j++){
+                char *name_buf = (char *)malloc(20);
+                aos_rpc_process_get_name(&local_rpc, pids[j], &name_buf);
+                
                 char pid_buf[32];
-                sprintf(pid_buf, "| %*d. %*d                 |\n\r",
-                    3, j, 3, pids[j]);
+                sprintf(pid_buf, "| %*d. %-15s %*d |\n\r",
+                    3, j, name_buf, 3, pids[j]);
                 print_line(pid_buf);
             }
             print_line(divide);
@@ -314,6 +317,8 @@ int main(int argc, char *argv[])
     debug_printf("memeater started\n");
     debug_printf("%s, pid: %u\n", disp_name(), disp_get_domain_id());
     
+    domainid_t pid;
+    aos_rpc_process_spawn(&local_rpc, "blink 1 100 &", &pid);
     debug_printf("Running Command Line Interface Demo...\n");
     cli_demo();
     debug_printf("Done\n\n");
