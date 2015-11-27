@@ -179,11 +179,16 @@ static void join(char *argv[], char *argv_string, uint32_t argc){
     }
 }
 
-static void parse_cli_cmd(char *str, char **argv, int *args);
-static void parse_cli_cmd(char *str, char **argv, int *args)
+static void parse_cli_cmd(char *str, char **argv, int *args, 
+                            bool *background_run);
+static void parse_cli_cmd(char *str, char **argv, int *args, 
+                            bool *background_run)
 {
     char *tok; 
     int i;
+
+    assert(background_run != NULL);
+
     const char *delim = " ";
 
     tok = strtok(str, delim);
@@ -197,6 +202,7 @@ static void parse_cli_cmd(char *str, char **argv, int *args)
     }
 
     *args = i;
+    *background_run = (*argv[i] == '&') ? true : false;
 }
 
 static void cli_demo(void);
@@ -205,14 +211,22 @@ static void cli_demo(void)
     char input_buf[256];
     char *argv[256];
     int argc, i;
+    bool run_background;
 
     memset(input_buf, '\0', 256);
 
     print_line("======== BEGIN BASIC SHELL ==========\r\n");
     while (true) {
         scan_line(input_buf);
-        parse_cli_cmd(input_buf, argv, &argc);
-        
+        parse_cli_cmd(input_buf, argv, &argc, &run_background);
+
+        // DEBUGGING
+        // debug_printf("arguments:\n");
+        // for (i = 0; i < args; i++) {
+        //     debug_printf("%s\n", argv[i]);
+        // }
+        // debug_printf("input buf: >>%s<<\n", input_buf);
+
         if (strcmp(argv[0], "echo") == 0) {
 
             if (argc < 2) {
@@ -281,6 +295,8 @@ static void cli_demo(void)
                 print_line(pid_buf);
             }
             print_line(divide);
+        } else if (strcmp(argv[0], "kill") == 0) {
+            
         } else if (strcmp(argv[0], "exit") == 0) {
             print_line("exiting shell... goodbye\r\n");
             print_line("======== END BASIC SHELL ========\r\n");

@@ -82,6 +82,12 @@ int main(int argc, char *argv[])
     }
     
     debug_printf("blink exiting\n");
+
+    err = aos_rpc_send_string(&local_rpc, "bye");
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "fail to say bye\n");
+        err_print_calltrace(err);
+    }
     
     return 0;
 }
