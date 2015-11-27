@@ -67,8 +67,6 @@ static void recv_handler(void *rpc_void)
                  rpc->char_count++;
 
                  if (msg.buf.words[i] == '\0') {
-                    debug_printf("Text msg received for %s: %s\n",
-                        disp_name(), rpc->msg_buf);
                     rpc->char_count = 0;
                     break;
                 }
@@ -390,9 +388,9 @@ errval_t aos_rpc_process_get_name(struct aos_rpc *chan, domainid_t pid,
     while (chan->wait_event) {
         event_dispatch(get_default_waitset());
     }
-    memcpy(chan->process_name, chan->msg_buf,
+    
+    memcpy(*name, chan->msg_buf,
         strlen((char *)chan->msg_buf));
-    *name = chan->process_name;
 
     clean_aos_rpc_msgbuf(chan);
 
@@ -553,16 +551,17 @@ errval_t aos_rpc_init(struct aos_rpc *rpc)
     struct paging_state *st = get_current_paging_state();
     
     st->rpc = rpc;
-
+    
     // Listen for response from init. When recv_handler returns,
     // cap should be in rpc->return_cap
+    debug_printf("waiting for response from init\n");
     event_dispatch(get_default_waitset());
+    debug_printf("got response\n");
     
     return SYS_ERR_OK;
 }
 
 static void clean_aos_rpc_msgbuf(struct aos_rpc *rpc)
 {
-    return; // FIXME delete
     memset(rpc->msg_buf, '\0', AOS_RPC_MSGBUF_LEN);
 }

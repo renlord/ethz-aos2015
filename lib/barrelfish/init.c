@@ -55,14 +55,17 @@ void libc_exit(int status)
         // XXX: Leak all other domain allocations
     } else {
         // we will call spawnd service to clean a domain
-        errval_t err = cap_revoke(cap_dispatcher);
-        if (err_is_fail(err)) {
-            sys_print("revoking dispatcher failed in _Exit, spinning!", 100);
-            while (1) {}
-        }
-        err = cap_delete(cap_dispatcher);
-        sys_print("deleting dispatcher failed in _Exit, spinning!", 100);
-        debug_printf("libc_exit NYI!\n");
+        aos_rpc_send_string(&local_rpc, "bye");
+        thread_exit();
+        event_dispatch(get_default_waitset());
+        // errval_t err = cap_revoke(cap_dispatcher);
+        // if (err_is_fail(err)) {
+        //     sys_print("revoking dispatcher failed in _Exit, spinning!", 100);
+        //     while (1) {}
+        // }
+        // err = cap_delete(cap_dispatcher);
+        // sys_print("deleting dispatcher failed in _Exit, spinning!", 100);
+        // debug_printf("libc_exit NYI!\n");
     }
 
     // If we're not dead by now, we wait
@@ -173,7 +176,7 @@ errval_t barrelfish_init_onthread(struct spawn_domain_params *params)
     if (init_domain) {
         return SYS_ERR_OK;
     }
-
+    
     err = aos_rpc_init(&local_rpc);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "failed to initialize aos_rpc for process\n");

@@ -27,6 +27,8 @@
 
 #define MAX_CLIENTS 50
 #define HARD_LIMIT (1UL << 28)
+#define RETRYS 20 // number of times we try contacting a process
+                  // before giving up and removing it from proc stack
 
  // first EP starts in dispatcher frame after dispatcher (33472 bytes)
 // and the value we use for the mint operation is the offset of the kernel
@@ -40,9 +42,9 @@
 
 static coreid_t my_core_id;
 
-static struct client_state *client_stack;
-static struct process *fst_process;
-    
+// static struct process *fst_process;
+static struct ps_stack *ps_stack;
+
 static volatile uint32_t *uart3_thr = NULL;
 static volatile uint32_t *uart3_rhr = NULL;
 static volatile uint32_t *uart3_fcr = NULL;
@@ -53,54 +55,126 @@ static errval_t get_pid_at_index(uint32_t idx, domainid_t *pid);
 static const char *get_pid_name(domainid_t pid);
 static size_t get_pids_count(void);
 static errval_t reply_string(struct lmp_chan *lc, const char *string);
-static void register_process(struct spawninfo *si, const char *name);
+// static struct process *register_process(struct spawninfo *si, const char *name);
 
 struct bootinfo *bi;
 
-struct client_state {
-    struct client_state *next;
+struct ps_state {
     struct lmp_chan *lc;
-    size_t alloced;
     char mailbox[500];
     size_t char_count;
     uint32_t send_msg[9];
     struct capref send_cap;
-    struct event_closure next_event;
 };
 
-struct process {
+struct ps_stack {
+    struct ps_stack *next;
+    struct ps_state *state;
+    // struct process *process;
+    bool background;
+    bool pending_request;
+    char name[30];
     domainid_t pid;
-    const char *name;
-    struct process *next;
 };
+
+// struct process {
+//     domainid_t pid;
+//     char name[30];
+//     struct process *next;
+// };
 
 struct serial_write_lock {
     bool lock;
-    struct client_state *cli;
+    struct ps_state *cli;
 };
 
 struct serial_read_lock {
     bool lock;
-    struct client_state *cli;
+    struct ps_state *cli;
 };
 
 static domainid_t pid_counter = 0;
 
-static void stack_push(struct client_state *cs);
-static void stack_push(struct client_state *cs)
+static void stack_push(struct ps_stack *top);
+static void stack_push(struct ps_stack *top)
 {
-    cs->next = client_stack;
-    client_stack = cs;
+    top->next = ps_stack;
+    ps_stack = top;
     return;
 }
 
-static struct client_state *stack_pop(void);
-static struct client_state *stack_pop(void)
+static void stack_insert_bottom(struct ps_stack *bottom);
+static void stack_insert_bottom(struct ps_stack *bottom)
 {
-    struct client_state *cs = client_stack;
-    client_stack = cs->next;
-    return cs;
+    struct ps_stack *elm = ps_stack;
+    while(elm->next != NULL){
+        elm = elm->next;
+    }
+    elm->next = bottom;
+    bottom->next = NULL;
+
+    return;
 }
+
+static struct ps_stack *stack_pop(void);
+static struct ps_stack *stack_pop(void)
+{
+    struct ps_stack *top = ps_stack;
+    ps_stack = top->next;
+    return top;
+}
+
+static void debug_print_stack(void);
+static void debug_print_stack(void)
+{
+    debug_printf("PROCESS STACK:\n");
+    struct ps_stack *cur = ps_stack;
+    while(cur != NULL){
+        debug_printf("%s\n", cur->name);
+        cur = cur->next;
+    }
+    debug_printf("DONE\n");
+}
+
+static void stack_remove_state(struct ps_state *proc);
+static void stack_remove_state(struct ps_state *proc)
+{
+    if(proc == ps_stack->state){
+        stack_pop();
+        return;
+    }
+    
+    struct ps_stack *elm = ps_stack;
+    while(elm->next != NULL && elm->next->state != proc){
+        elm = elm->next;
+    }
+    
+    if(elm->next->state == proc){
+        elm->next = elm->next->next;
+    }
+    
+}
+
+// static void deregister_process(struct process *process);
+// static void deregister_process(struct process *process)
+// {
+//     if(process == fst_process){
+//         assert(fst_process->next != NULL);
+//         fst_process = fst_process->next;
+//         return;
+//     }
+//
+//     struct process *elm = fst_process;
+//     while(elm->next != NULL && elm->next != process){
+//         elm = elm->next;
+//     }
+//
+//     if(elm->next == process){
+//         elm->next = elm->next->next;
+//     }
+// }
+
+
 
 errval_t serial_put_char(const char *c) 
 {
@@ -121,48 +195,27 @@ errval_t serial_get_char(char *c)
     return SYS_ERR_OK;
 }
 
-static void parse_cmd_args(char *str, char **argv, uint32_t *args);
-static void parse_cmd_args(char *str, char **argv, uint32_t *args)
+void send_handler(void *proc_in)
 {
-    char *tok; 
-    int i;
-    const char *delim = " ";
-
-    tok = strtok(str, delim);
-    
-    if (tok != NULL) {
-        argv[0] = tok; 
-    }
-
-    for (i = 1; (tok = strtok(NULL, delim)) != NULL; i++) {
-        argv[i] = tok;
-    }
-
-    *args = i;
-}
-
-
-void send_handler(void *client_state_in)
-{
-    struct client_state *client_state = (struct client_state*)client_state_in;
+    struct ps_state *proc = (struct ps_state*)proc_in;
     
     uint32_t buf[9];
     for (uint8_t i = 0; i < 9; i++){
-        buf[i] = client_state->send_msg[i];
+        buf[i] = proc->send_msg[i];
         if((char*)buf[i] == '\0'){
             break;
         }
     }
     
-    struct capref cap = client_state->send_cap;    
+    struct capref cap = proc->send_cap;    
     
-    errval_t err = lmp_chan_send9(client_state->lc, LMP_SEND_FLAGS_DEFAULT, cap, buf[0],
+    errval_t err = lmp_chan_send9(proc->lc, LMP_SEND_FLAGS_DEFAULT, cap, buf[0],
                                   buf[1], buf[2], buf[3], buf[4],
                                   buf[5], buf[6], buf[7], buf[8]);
  
     if (err_is_fail(err)){ // TODO check that err is indeed endbuffer full
-        struct event_closure closure = MKCLOSURE(send_handler, client_state_in);
-        err = lmp_chan_register_send(client_state->lc, get_default_waitset(),
+        struct event_closure closure = MKCLOSURE(send_handler, proc_in);
+        err = lmp_chan_register_send(proc->lc, get_default_waitset(),
                                      closure);
         if (err_is_fail(err)) {
             debug_printf("Could not re-register for sending\n");
@@ -175,15 +228,26 @@ void send_handler(void *client_state_in)
 
 void recv_handler(void *lc_in)
 {
+    assert(ps_stack != NULL);
     struct capref remote_cap = NULL_CAP;
     struct lmp_chan *lc = (struct lmp_chan *)lc_in;
     
     // Find the state for the requesting client
-    struct client_state *cs = client_stack;
-    while (cs != NULL && cs->lc != lc){
-        cs = cs->next;
+    // FIXME should traverse tree, not stack!!!!!
+    struct ps_stack *elm = ps_stack;
+    
+    while (elm != NULL &&
+           elm->state != NULL &&
+           elm->state->lc != lc)
+    {
+        elm = elm->next;
     }
-        
+
+    struct ps_state *proc = NULL;
+    if (elm != NULL){
+         proc = elm->state;
+    }
+    
     // Retrieve message
     struct lmp_recv_msg msg = LMP_RECV_MSG_INIT;
     errval_t err = lmp_chan_recv(lc, &msg, &remote_cap);
@@ -194,38 +258,47 @@ void recv_handler(void *lc_in)
         err_print_calltrace(err);
         return;
     }
-
+    
     // Re-register
     lmp_chan_register_recv(lc, get_default_waitset(),
         MKCLOSURE(recv_handler, lc_in));
     
-    // Our protocol requires that there is a procedure code
-    // at a bare minimum
-    if (msg.buf.msglen == 0) {
-        debug_printf("Bad msg for init.\n");
-        return;
+    uint32_t code = msg.buf.words[0];
+    
+    bool postpone = false;
+        
+    if (proc != NULL){
+        assert(elm != NULL);
+        
+        // If process is not on top of stack and not running
+        // in background, we postpone
+        postpone = (elm != ps_stack && !elm->background);
+        
+        // Preparation
+        for (uint32_t i = 1; i < LMP_MSG_LENGTH; i++){
+            proc->send_msg[i] = 0;
+        }
+        proc->send_cap = NULL_CAP;
     }
     
-    uint32_t code = msg.buf.words[0];
-
-    assert(cs != NULL || code == REQUEST_CHAN);
+    if (proc != NULL) {
+        proc->send_msg[0] = code;
+    }
     
     bool reply = false;
-    
+
+    assert(proc != NULL || code == REQUEST_CHAN);
+
     switch(code) {
         
         // Initial request from new clients, causes init to establish
         // a new channel for future communication
         case REQUEST_CHAN:
         {
-            
             if (capref_is_null(remote_cap)) {
                 debug_printf("Received endpoint cap was null.\n");
                 return;
             }
-            
-            
-            cs = client_stack;
             
             // Create new endpoint and channel, and initialize
             struct capref ep_cap;
@@ -262,14 +335,20 @@ void recv_handler(void *lc_in)
                 return;
             }
 
-            // Insert in ps_entry
-            assert(cs->lc == NULL);
-            cs->lc = new_chan;
+            // initialize process state
+            proc = (struct ps_state *)malloc(sizeof(struct ps_state));
+            proc->lc = new_chan;
+
+            // insert on process stack
+            elm = ps_stack;
+            while (elm->state != NULL){
+                elm = elm->next;
+            }
+            elm->state = proc;
 
             // Send new endpoint cap back to client
-            cs->send_msg[0] = REQUEST_CHAN;
-            cs->send_msg[1] = '\0';
-            cs->send_cap = ep_cap;
+            proc->send_msg[0] = REQUEST_CHAN;
+            proc->send_cap = ep_cap;
             reply = true;
 
             // Allocate receive struct right away for next msg
@@ -288,40 +367,56 @@ void recv_handler(void *lc_in)
         {
 
             for(uint8_t i = 1; i < 9; i++){
-                 cs->mailbox[cs->char_count] = msg.buf.words[i];
-                 cs->char_count++;
+                 proc->mailbox[proc->char_count] = msg.buf.words[i];
+                 proc->char_count++;
                  
                  if (msg.buf.words[i] == '\0') {
-                    cs->char_count = 0;
+                    proc->char_count = 0;
                     
                     // TODO actually handle receiving a msg
                     break;
                 }
             }
             
-            if (strncmp(cs->mailbox, "ping", 4) == 0){
+            if (strncmp(proc->mailbox, "ping", 4) == 0){
 
-                cs->send_msg[0] = SEND_TEXT;
+                proc->send_msg[0] = SEND_TEXT;
                 for (uint32_t i = 0; i < 7; i++){
-                    cs->send_msg[i+1] = (uint32_t)cs->mailbox[i];
-                    if(cs->mailbox[i] == '\0'){
+                    proc->send_msg[i+1] = (uint32_t)proc->mailbox[i];
+                    if(proc->mailbox[i] == '\0'){
                         break;
                     }
                 }
                 
                 reply = true;
-                cs->send_msg[0] = SEND_TEXT;
-                cs->send_msg[1] = (uint32_t)'p';
-                cs->send_msg[2] = (uint32_t)'o';
-                cs->send_msg[3] = (uint32_t)'n';
-                cs->send_msg[4] = (uint32_t)'g';
-                cs->send_msg[5] = (uint32_t)'\0';
-                cs->send_cap = NULL_CAP;
+                proc->send_msg[0] = SEND_TEXT;
+                proc->send_msg[1] = (uint32_t)'p';
+                proc->send_msg[2] = (uint32_t)'o';
+                proc->send_msg[3] = (uint32_t)'n';
+                proc->send_msg[4] = (uint32_t)'g';
+                proc->send_cap = NULL_CAP;
             }
 
-            if (strncmp(cs->mailbox, "bye", 3) == 0) {
-                debug_printf("popping stack\n");
-                stack_pop();
+            if (strncmp(proc->mailbox, "bye", 3) == 0) {
+                bool is_top = (elm == ps_stack);
+                // void *x = deregister_process;
+                // x=x;
+                // stack_remove_state(proc);
+                if(is_top){
+                    // debug_print_stack();
+                    // deregister_process(elm->process);
+                    stack_pop();
+                    // debug_print_stack();
+                    // if(ps_stack->pending_request){
+                        debug_printf("Next process should run now\n");
+                        elm = ps_stack;
+                        proc = elm->state;
+                        reply = true;
+                    // } else {
+                    //     debug_printf("Not top\n");
+                    //     return;
+                    // }
+                }
             }
         }
         break;
@@ -334,11 +429,6 @@ void recv_handler(void *lc_in)
             size_t req_bytes = (1UL << req_bits);
             struct capref dest = NULL_CAP;
             
-            if (cs->alloced + req_bytes >= HARD_LIMIT){
-                debug_printf("Client request exceeds hard limit.\n");
-                return;
-            }
-            
             // Perform the allocation
             size_t ret_bytes;
             err = frame_alloc(&dest, req_bytes, &ret_bytes);
@@ -347,14 +437,10 @@ void recv_handler(void *lc_in)
                 err_print_calltrace(err);
             }
             
-            cs->alloced += ret_bytes;
-            
-            
             // Send cap and return bits back to caller
-            cs->send_msg[0] = REQUEST_FRAME_CAP;
-            cs->send_msg[1] = log2ceil(ret_bytes);
-            cs->send_msg[2] = '\0';
-            cs->send_cap = dest;
+            proc->send_msg[0] = REQUEST_FRAME_CAP;
+            proc->send_msg[1] = log2ceil(ret_bytes);
+            proc->send_cap = dest;
             reply = true;
             
             break;
@@ -362,9 +448,9 @@ void recv_handler(void *lc_in)
         
         case REQUEST_DEV_CAP:
         {
-            cs->send_msg[0] = REQUEST_DEV_CAP;
-            cs->send_msg[1] = '\0';
-            cs->send_cap = cap_io;
+            debug_printf("handing out REQUEST_DEV_CAP\n");
+            proc->send_msg[0] = REQUEST_DEV_CAP;
+            proc->send_cap = cap_io;
             reply = true;
             
             break;
@@ -372,32 +458,36 @@ void recv_handler(void *lc_in)
 
         case SERIAL_PUT_CHAR:
         {
-            serial_put_char((char *) &msg.buf.words[1]);
+            if (proc == ps_stack->state) {
+                serial_put_char((char *) &msg.buf.words[1]);
+            }
+            
             break;
         }
 
         case SERIAL_GET_CHAR:
         {
-            char c;
-            serial_get_char(&c);
-
-            cs->send_msg[0] = SERIAL_GET_CHAR;
-            cs->send_msg[1] = c;
-            cs->send_msg[2] = '\0';
-            cs->send_cap = NULL_CAP;
-            reply = true;
+            if (proc == ps_stack->state) {
+                char c;
+                serial_get_char(&c);
+                
+                proc->send_msg[0] = SERIAL_GET_CHAR;
+                proc->send_msg[1] = c;
+                proc->send_cap = NULL_CAP;
+                reply = true;
+            }
             
             break;
         }
 
         case PROCESS_SPAWN:
         {
-            // 1. client sends name of application to cs->mailbox via 
+            // 1. client sends name of application to proc->mailbox via 
             // SEND_TEXT.
 
             // 2. client indicates that name transfer is complete, we check
             // mailbox for the name of the application.
-            char *app_name = cs->mailbox;
+            char *app_name = proc->mailbox;
             //debug_printf("received app name: %s\n", app_name);
 
             // sanity checks
@@ -408,21 +498,19 @@ void recv_handler(void *lc_in)
             err = spawn(app_name, &pid);
 
             // reset mailbox
-            memset(cs->mailbox, '\0', 500);
-            cs->char_count = 0;
+            memset(proc->mailbox, '\0', 500);
+            proc->char_count = 0;
 
             // 3. we inform client if app spawn is successful or not.
-            cs->send_msg[0] = PROCESS_SPAWN;
-            cs->send_cap = NULL_CAP;
+            proc->send_msg[0] = PROCESS_SPAWN;
+            proc->send_cap = NULL_CAP;
             reply = true;
             if (err_is_fail(err)) {
-                cs->send_msg[1] = false;
-                cs->send_msg[2] = '\0';
+                proc->send_msg[1] = false;
                 DEBUG_ERR(err, "failed to spawn process from SHELL.\n");
             } else {
-                cs->send_msg[1] = true;
-                cs->send_msg[2] = pid;
-                cs->send_msg[3] = '\0';
+                proc->send_msg[1] = true;
+                proc->send_msg[2] = pid;
             }
             
             break;
@@ -454,10 +542,9 @@ void recv_handler(void *lc_in)
         {
             // 3. we inform client if app spawn is successful or not.
             reply = true;
-            cs->send_msg[0] = PROCESS_GET_NO_OF_PIDS;
-            cs->send_msg[1] = get_pids_count();
-            cs->send_msg[2] = '\0';
-            cs->send_cap = NULL_CAP;
+            proc->send_msg[0] = PROCESS_GET_NO_OF_PIDS;
+            proc->send_msg[1] = get_pids_count();
+            proc->send_cap = NULL_CAP;
 
             break;
         }
@@ -474,10 +561,9 @@ void recv_handler(void *lc_in)
             }
             
             reply = true;
-            cs->send_msg[0] = PROCESS_GET_PID;
-            cs->send_msg[1] = pid;
-            cs->send_msg[2] = '\0';
-            cs->send_cap = NULL_CAP;
+            proc->send_msg[0] = PROCESS_GET_PID;
+            proc->send_msg[1] = pid;
+            proc->send_cap = NULL_CAP;
 
             break;
         }
@@ -489,20 +575,28 @@ void recv_handler(void *lc_in)
         }
     }
     
-    
     if(reply){
-        if(cs == client_stack){
-            do {
-                err = lmp_chan_register_send(lc_in, get_default_waitset(),
-                                             MKCLOSURE(send_handler, cs));
-                if (err_is_fail(err)) {
-                    debug_printf("Could not register for sending\n");
-                }
-            } while(err_is_fail(err));
-            
+        assert(elm != NULL);
+        
+        if (postpone){
+            elm->pending_request = true;
         } else {
-            cs->next_event = MKCLOSURE(send_handler, cs);
+            for(uint32_t i = 0; i < RETRYS; i++){
+                err = lmp_chan_register_send(lc_in, get_default_waitset(),
+                                             MKCLOSURE(send_handler, proc));
+                if (err_is_ok(err)) {
+                    break;
+                }
+                debug_printf("retrying\n");
+            }
+            
+            if(err_is_fail(err)){
+                // TODO kill proc
+                stack_pop();
+            }            
         }
+    } else {
+        elm->pending_request = false;
     }
 }
 
@@ -550,51 +644,46 @@ static errval_t spawn(char *name, domainid_t *pid)
 {
     errval_t err;
     
-    struct client_state *new_state =
-        (struct client_state *) malloc(sizeof(struct client_state));
-    new_state->next = NULL;
-    new_state->lc = NULL;
-    new_state->alloced = 0;
-    new_state->char_count = 0;
-    new_state->next_event = NOP_CLOSURE;
-    stack_push(new_state);
-
-    char *argv[20];
-    uint32_t argc;
-    parse_cmd_args(name, argv, &argc);
-    if (argc >= 20){
-        debug_printf("Too many spawn arguments.\n");
-        abort();
+    struct ps_stack *new_elm =
+        (struct ps_stack *) malloc(sizeof(struct ps_stack));
+    new_elm->next = NULL;
+    new_elm->pending_request = false;
+    new_elm->state = NULL;
+    
+    // Parse cmd line args
+    const uint32_t argv_len = 20;
+    char *argv[argv_len];
+    uint32_t argc = spawn_tokenize_cmdargs(name, argv, argv_len);
+    char amp = '&';
+    if(strncmp(argv[argc-1], &amp, 1) != 0){
+        argv[argc] = NULL;
+        new_elm->background = false;
+        stack_push(new_elm);
+    } else {
+        argv[argc-1] = NULL;
+        new_elm->background = true;
+        stack_insert_bottom(new_elm);
     }
     
-    argv[argc] = NULL;
-    
-    char *envp[20];
-    envp[0] = NULL;
-    
+    for(uint32_t i = 0; i < 30; i++){
+        new_elm->name[i] = name[i];
+        if(name[i] == '\0'){
+            break;
+        }
+    }
+
+    char *envp[1];
+    envp[0] = NULL; // FIXME pass parent environment
     
     // concat name with path
     const char *path = "armv7/sbin/"; // size 11
     char concat_name[strlen(name) + 11];
 
+
     memcpy(concat_name, path, strlen(path));
     memcpy(&concat_name[strlen(path)], name, strlen(name)+1);
     
     struct mem_region *mr = multiboot_find_module(bi, concat_name);
-    
-    // struct capref frame = {
-    //     .cnode = cnode_module,
-    //     .slot  = mr->mrmod_slot,
-    // };
-    //
-    // struct capref capcopy;
-    // slot_alloc(&capcopy);
-    // errval_t err = cap_copy(capcopy, frame);
-    // if (err_is_fail(err)){
-    //     err_print_calltrace(err);
-    //     abort();
-    // }
-    
     
     if (mr == NULL){
         // FIXME convert this to user space printing
@@ -605,6 +694,11 @@ static errval_t spawn(char *name, domainid_t *pid)
     
     struct spawninfo si;
     si.domain_id = ++pid_counter;
+    *pid = si.domain_id;
+    // struct process *p = register_process(&si, name);
+    // void *x = register_process;
+    // x=x;
+    new_elm->pid = *pid;
 
     err = spawn_load_with_args(&si, mr, concat_name, disp_get_core_id(),
             argv, envp);
@@ -613,10 +707,8 @@ static errval_t spawn(char *name, domainid_t *pid)
         debug_printf("Failed spawn image: %s\n", err_getstring(err));
         err_print_calltrace(err);
         return err;
-    } 
+    }
 
-    *pid = si.domain_id;
-    register_process(&si, name);
 
     // Copy Init's EP to Spawned Process' CSpace
     struct capref cap_dest;
@@ -652,23 +744,12 @@ static errval_t spawn(char *name, domainid_t *pid)
         return err;
     }
     
-    // struct capref frame = {
-    //     .cnode = cnode_module,
-    //     .slot  = mr->mrmod_slot,
-    // };
-    //
-    // err = cap_destroy(frame);
-    // if (err_is_fail(err)){
-    //     err_print_calltrace(err);
-    //     abort();
-    // }
-    
     return SYS_ERR_OK;
 }
 
 static size_t get_pids_count(void) 
 {
-    struct process *temp = fst_process;
+    struct ps_stack *temp = ps_stack;
     size_t n = 0;
     while (temp != NULL) {
         temp = temp->next;
@@ -679,8 +760,8 @@ static size_t get_pids_count(void)
 
 static errval_t get_pid_at_index(uint32_t idx, domainid_t *pid)
 {
-    assert(fst_process);
-    struct process *current = fst_process;
+    assert(ps_stack);
+    struct ps_stack *current = ps_stack;
 
     for (uint32_t j = 0; j < idx; j++) {
         current = current->next;
@@ -701,7 +782,6 @@ static errval_t reply_string(struct lmp_chan *lc, const char *string)
     while (rlen < slen) {
         size_t chunk_size = ((slen-rlen) < 8) ? (slen-rlen) : 8;
         memcpy(buf, string, chunk_size);
-        debug_printf("sending %s\n", buf);
         err = lmp_chan_send(lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP,
                             9, SEND_TEXT, buf[0], buf[1], buf[2],
                             buf[3], buf[4], buf[5], buf[6], buf[7]);
@@ -720,26 +800,34 @@ static errval_t reply_string(struct lmp_chan *lc, const char *string)
 
 static const char *get_pid_name(domainid_t pid) 
 {
-    struct process *temp = fst_process;
+    struct ps_stack *temp = ps_stack;
     while (temp != NULL) {
         if (pid == temp->pid) {
             return temp->name;
         }
+        temp = temp->next;
     }
     return NULL;
 }
 
-static void register_process(struct spawninfo *si, const char *name)
-{
-    struct process *temp = fst_process;
-    while (temp->next != NULL) {
-        temp = temp->next;
-    }
-    temp->next = (struct process *) malloc(sizeof(struct process));
-    temp->next->pid = si->domain_id;
-    temp->next->name = name;
-    temp->next->next = NULL;
-}
+// static struct process *register_process(struct spawninfo *si, const char *name)
+// {
+//     struct process *temp = fst_process;
+//     while (temp->next != NULL) {
+//         temp = temp->next;
+//     }
+//     temp->next = (struct process *) malloc(sizeof(struct process));
+//     temp->next->pid = si->domain_id;
+//     // temp->next->name = (char *)malloc(strlen(name));
+//     for(uint32_t i = 0; i < 30; i++){
+//         temp->next->name[i] = name[i];
+//         if(name[i] == '\0'){
+//             break;
+//         }
+//     }
+//     temp->next->next = NULL;
+//     return temp;
+// }
 
 // initializes all essential services..
 // void bootstrap(void) 
@@ -820,14 +908,21 @@ int main(int argc, char *argv[])
      * sentinel word).
      */
     
-    // client_stack = (struct client_state *) malloc(sizeof(struct client_state));
-    fst_process = (struct process *) malloc(sizeof(struct process));
+    // client_stack = (struct ps_state *) malloc(sizeof(struct ps_state));
+    // fst_process = (struct process *) malloc(sizeof(struct process));
 
     // Register INIT as first process!!!
-    fst_process->pid = disp_get_domain_id();
-    fst_process->name = "init";
-    fst_process->next = NULL;
+    
+    ps_stack = (struct ps_stack *)malloc(sizeof(struct ps_stack));
+    ps_stack->pid = disp_get_domain_id();
+    ps_stack->name[0] = 'i';
+    ps_stack->name[1] = 'n';
+    ps_stack->name[2] = 'i';
+    ps_stack->name[3] = 't';
+    ps_stack->name[4] = '\0';
 
+    ps_stack->next = NULL;
+    
     struct lmp_endpoint *my_ep;
     lmp_endpoint_setup(0, FIRSTEP_BUFLEN, &my_ep);
     
@@ -848,7 +943,6 @@ int main(int argc, char *argv[])
         exit(-1);
     }
     
-    client_stack = NULL;
 
     debug_printf("cap_initep, cap_selfep OK.\n");
 
@@ -896,8 +990,8 @@ int main(int argc, char *argv[])
         debug_printf("Done\n");
     }
     
-    void *c = stack_pop;
-    c = stack_push;
+    void *c = stack_remove_state;
+    c = debug_print_stack;
     c=c;
 
     debug_printf("Entering dispatch loop\n");
