@@ -170,9 +170,8 @@ errval_t barrelfish_init_onthread(struct spawn_domain_params *params)
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "failed to initialize aos_rpc for process\n");
         err_print_calltrace(err);
-    } else {
-        debug_printf("aos_rpc initalized for process\n");
     }
+    
     // TODO STEP 3: register ourselves with init
     /* allocate lmp channel structure */
     /* create local endpoint */

@@ -86,6 +86,7 @@ static struct node *create_node(struct paging_state *st)
     n->allocated = false;
     n->left = NULL;
     n->right = NULL;
+
     return n;
 }
 
@@ -108,9 +109,15 @@ static lvaddr_t buddy_alloc(struct paging_state *st,
     
     // Size available in subtree is less than what's requested
     if (cur->max_size < req_size){
+        abort();
         return -1;
     }
-        
+    
+    if((lvaddr_t)cur == 0x0161d8f0){
+        debug_printf("node 0x0161d8f0, "
+                     "max size: %d\n", cur->max_size);
+    }
+    
     // Case 1: Node is a leaf (i.e. blob of memory)
     if (!cur->left){
         assert(!cur->allocated);
@@ -136,9 +143,21 @@ static lvaddr_t buddy_alloc(struct paging_state *st,
             cur->max_size = half_size;
             cur->allocated = true;
             
+            if((lvaddr_t)left_buddy == 0x0161d8f0){
+                debug_printf("left_buddy 0x0161d8f0, "
+                             "max size: %d\n", left_buddy->max_size);
+            }
+            
+            if((lvaddr_t)right_buddy == 0x0161d8f0){
+                debug_printf("right_buddy 0x0161d8f0, "
+                             "max size: %d\n", right_buddy->max_size);
+            }
+            
             // Sanity checks
             assert(left_buddy->addr < right_buddy->addr);
             assert((left_buddy->addr ^ right_buddy->addr) == half_size);
+            assert(left_buddy->max_size >= MIN_BLOB_SIZE);
+            assert(right_buddy->max_size >= MIN_BLOB_SIZE);
             
             return buddy_alloc(st, left_buddy, req_size);
             
@@ -149,8 +168,7 @@ static lvaddr_t buddy_alloc(struct paging_state *st,
             debug_get_free_space(&pre_free, &pre_alloc);
             */
             
-            assert(cur->max_size > 0);
-
+            assert(cur->max_size > MIN_BLOB_SIZE);
             cur->allocated = true;
             
             /*
@@ -173,13 +191,17 @@ static lvaddr_t buddy_alloc(struct paging_state *st,
             (cur->right->max_size >= req_size));
         
         if (ALLOCED_BLOB(cur->left) || left_too_small || right_fits_better){
-            if(cur->right->max_size == 0){
-                return -1;
-            }
+            // Sanity check
+            assert(cur->right->max_size >= MIN_BLOB_SIZE);
+
             best_fit = cur->right;
         } else {
             // Sanity check
-            assert(cur->left->max_size);
+            if(cur->left->max_size < MIN_BLOB_SIZE){
+                debug_printf("cur->left addr: 0x%08x\n", cur->left);
+            }
+            
+            assert(cur->left->max_size >= MIN_BLOB_SIZE);
             
             best_fit = cur->left;
         }
@@ -751,6 +773,10 @@ errval_t paging_alloc(struct paging_state *st, void **buf, size_t bytes)
     debug_printf("paging_alloc called for st 0x%08x, bytes: %d\n",
         st, bytes);
 #endif
+    
+    if(bytes == 0){
+        return SYS_ERR_VM_MAP_SIZE;
+    }
     
     assert(st != NULL);
     current = *st;
