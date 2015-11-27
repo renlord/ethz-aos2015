@@ -68,7 +68,6 @@ struct client_state {
     struct event_closure next_event;
 };
 
-
 struct process {
     domainid_t pid;
     const char *name;
@@ -84,6 +83,8 @@ struct serial_read_lock {
     bool lock;
     struct client_state *cli;
 };
+
+static domainid_t pid_counter = 0;
 
 static void stack_push(struct client_state *cs);
 static void stack_push(struct client_state *cs)
@@ -301,6 +302,11 @@ void recv_handler(void *lc_in)
                 cs->send_msg[4] = (uint32_t)'g';
                 cs->send_msg[5] = (uint32_t)'\0';
                 cs->send_cap = NULL_CAP;
+            }
+
+            if (strncmp(cs->mailbox, "bye", 3) == 0) {
+                debug_printf("popping stack\n");
+                stack_pop();
             }
         }
         break;
@@ -544,6 +550,7 @@ static errval_t spawn(const char *name, domainid_t *pid)
     envp[0] = NULL;
     
     struct spawninfo si;
+    si.domain_id = ++pid_counter;
 
     errval_t err = spawn_load_with_args(&si, mr, concat_name, disp_get_core_id(),
             argv, envp);
@@ -557,17 +564,27 @@ static errval_t spawn(const char *name, domainid_t *pid)
     *pid = si.domain_id;
     register_process(&si, name);
 
-    // Copy Init's EP to Memeater's CSpace
+    // Copy Init's EP to Spawned Process' CSpace
     struct capref cap_dest;
     cap_dest.cnode = si.taskcn;
     cap_dest.slot = TASKCN_SLOT_INITEP;
     err = cap_copy(cap_dest, cap_initep);
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "failed to copy init ep to memeater cspace\n");
+        DEBUG_ERR(err, "failed to copy init ep to new process' cspace\n");
         return err;
     }
 
-    debug_printf("calling spawn_run\n");
+    // Copy Parent Process's EP to Spawned Process' CSpace
+    assert(!capref_is_null(cap_selfep));
+    cap_dest.cnode = si.taskcn;
+    cap_dest.slot = TASKCN_SLOT_REMEP;
+    err = cap_copy(cap_dest, cap_selfep);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "failed to copy rem ep to new process' cspace\n");
+        return err;
+    }
+
+    //debug_printf("calling spawn_run\n");
     err = spawn_run(&si);
     if (err_is_fail(err)) {
         debug_printf("Failed spawn image: %s\n", err_getstring(err));
@@ -575,7 +592,7 @@ static errval_t spawn(const char *name, domainid_t *pid)
         return err;
     }
 
-    debug_printf("spawn_run returned\n");
+    //debug_printf("spawn_run returned\n");
     err = spawn_free(&si);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "failed to free memeater domain from init memory\n");
@@ -689,7 +706,7 @@ static void register_process(struct spawninfo *si, const char *name)
 // initializes all essential services..
 // void bootstrap(void) 
 // {
-
+    // spawnd is an essential service...
 // }
 
 int main(int argc, char *argv[])
@@ -840,7 +857,6 @@ int main(int argc, char *argv[])
     } else {
         debug_printf("Done\n");
     }
-    
     
     void *c = stack_pop;
     c = stack_push;

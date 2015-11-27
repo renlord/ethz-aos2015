@@ -54,6 +54,14 @@ void libc_exit(int status)
 
         // XXX: Leak all other domain allocations
     } else {
+        // we will call spawnd service to clean a domain
+        errval_t err = cap_revoke(cap_dispatcher);
+        if (err_is_fail(err)) {
+            sys_print("revoking dispatcher failed in _Exit, spinning!", 100);
+            while (1) {}
+        }
+        err = cap_delete(cap_dispatcher);
+        sys_print("deleting dispatcher failed in _Exit, spinning!", 100);
         debug_printf("libc_exit NYI!\n");
     }
 
