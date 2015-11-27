@@ -212,7 +212,7 @@ static void cli_demo(void)
 {
     char input_buf[256];
     char *argv[256];
-    int args, i;
+    int argc, i;
     bool run_background;
 
     memset(input_buf, '\0', 256);
@@ -220,7 +220,7 @@ static void cli_demo(void)
     print_line("======== BEGIN BASIC SHELL ==========\r\n");
     while (true) {
         scan_line(input_buf);
-        parse_cli_cmd(input_buf, argv, &args, &run_background);
+        parse_cli_cmd(input_buf, argv, &argc, &run_background);
 
         // DEBUGGING
         // debug_printf("arguments:\n");
