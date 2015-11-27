@@ -851,7 +851,15 @@ errval_t paging_map_fixed_attr(struct paging_state *st, lvaddr_t vaddr,
         st, bytes);
 #endif
     
-    errval_t err = allocate_pt(st, vaddr, frame, 0, bytes, flags, false);
+    struct capref capcopy;
+    slot_alloc(&capcopy);
+    errval_t err = cap_copy(capcopy, frame);
+    if (err_is_fail(err)){
+        err_print_calltrace(err);
+        abort();
+    }
+    
+    err = allocate_pt(st, vaddr, capcopy, 0, bytes, flags, false);
     if (err_is_fail(err)){
         debug_printf("Could not map fixed attribute: %s\n", err_getstring(err));
         err_push(err, LIB_ERR_MALLOC_FAIL);

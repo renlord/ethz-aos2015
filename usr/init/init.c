@@ -548,6 +548,8 @@ void my_read(void)
 
 static errval_t spawn(char *name, domainid_t *pid)
 {
+    errval_t err;
+    
     struct client_state *new_state =
         (struct client_state *) malloc(sizeof(struct client_state));
     new_state->next = NULL;
@@ -579,7 +581,21 @@ static errval_t spawn(char *name, domainid_t *pid)
     memcpy(&concat_name[strlen(path)], name, strlen(name)+1);
     
     struct mem_region *mr = multiboot_find_module(bi, concat_name);
-
+    
+    // struct capref frame = {
+    //     .cnode = cnode_module,
+    //     .slot  = mr->mrmod_slot,
+    // };
+    //
+    // struct capref capcopy;
+    // slot_alloc(&capcopy);
+    // errval_t err = cap_copy(capcopy, frame);
+    // if (err_is_fail(err)){
+    //     err_print_calltrace(err);
+    //     abort();
+    // }
+    
+    
     if (mr == NULL){
         // FIXME convert this to user space printing
         debug_printf("Could not spawn '%s': Program does not exist.\n", name);
@@ -590,7 +606,7 @@ static errval_t spawn(char *name, domainid_t *pid)
     struct spawninfo si;
     si.domain_id = ++pid_counter;
 
-    errval_t err = spawn_load_with_args(&si, mr, concat_name, disp_get_core_id(),
+    err = spawn_load_with_args(&si, mr, concat_name, disp_get_core_id(),
             argv, envp);
 
     if (err_is_fail(err)) {
@@ -666,7 +682,7 @@ static errval_t get_pid_at_index(uint32_t idx, domainid_t *pid)
     assert(fst_process);
     struct process *current = fst_process;
 
-    for (uint32_t j = 1; j < idx; j++) {
+    for (uint32_t j = 0; j < idx; j++) {
         current = current->next;
         assert(current != NULL);
     }
