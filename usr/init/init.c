@@ -287,7 +287,10 @@ void recv_handler(void *lc_in)
     
     bool reply = false;
 
-    assert(proc != NULL || code == REQUEST_CHAN);
+    //assert(proc != NULL || code == REQUEST_CHAN);
+    if (!(proc != NULL || code == REQUEST_CHAN)) { 
+        return;
+    }
 
     switch(code) {
         
