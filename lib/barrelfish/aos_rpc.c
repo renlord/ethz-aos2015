@@ -25,13 +25,22 @@
 
 static void clean_aos_rpc_msgbuf(struct aos_rpc *rpc);
 
-static void recv_handler(void *rpc_void);
-static void recv_handler(void *rpc_void) 
+
+
+static void spawnd_recv_handler(void *rpc_void);
+static void spawnd_recv_handler(void *rpc_void)
+{
+    return;
+}
+
+
+static void init_recv_handler(void *rpc_void);
+static void init_recv_handler(void *rpc_void) 
 {
     struct aos_rpc *rpc = (struct aos_rpc *)rpc_void;
     struct capref remote_cap = NULL_CAP;
     struct lmp_recv_msg msg = LMP_RECV_MSG_INIT;
-    errval_t err = lmp_chan_recv(&rpc->lc, &msg, &remote_cap);
+    errval_t err = lmp_chan_recv(&rpc->init_lc, &msg, &remote_cap);
     
     if (err_is_fail(err)) {
         debug_printf("Could not receive msg from init: %s\n",
@@ -56,7 +65,7 @@ static void recv_handler(void *rpc_void)
                 return;
             }
             
-            rpc->lc.remote_cap = remote_cap;
+            rpc->init_lc.remote_cap = remote_cap;
             break;
         }
         
@@ -141,7 +150,14 @@ static void recv_handler(void *rpc_void)
             rpc->msg_buf[0] = (char) msg.buf.words[1];
             break;
         }
-
+        case REQUEST_SPAWND_EP:
+        {
+            if (capref_is_null(remote_cap)) {
+               debug_printf("Received null cap for spawnd.\n");
+               abort(); // FIXME handle gracefully
+            }
+            rpc->return_cap = remote_cap;
+        }
         default:
         {
             debug_printf("Wrong rpc code!\n");
@@ -151,7 +167,7 @@ static void recv_handler(void *rpc_void)
 
     // Re-allocate
     if (!capref_is_null(remote_cap)){
-        err = lmp_chan_alloc_recv_slot(&rpc->lc);
+        err = lmp_chan_alloc_recv_slot(&rpc->init_lc);
         if (err_is_fail(err)){
             debug_printf("Could not allocate receive slot: %s.\n",
                 err_getstring(err));
@@ -161,8 +177,8 @@ static void recv_handler(void *rpc_void)
     }
     
     // Register our receive handler
-    err = lmp_chan_register_recv(&rpc->lc, get_default_waitset(), 
-        MKCLOSURE(recv_handler, rpc));
+    err = lmp_chan_register_recv(&rpc->init_lc, get_default_waitset(), 
+        MKCLOSURE(init_recv_handler, rpc));
     if (err_is_fail(err)){
         debug_printf("Could not register receive handler!\n");
         err_print_calltrace(err);
@@ -172,7 +188,7 @@ static void recv_handler(void *rpc_void)
 
 errval_t aos_rpc_send_string(struct aos_rpc *rpc, const char *string)
 {
-    struct lmp_chan lc = rpc->lc;
+    struct lmp_chan init_lc = rpc->init_lc;
 
     size_t slen = strlen(string) + 1; // adjust for null-character
     size_t rlen = 0;
@@ -182,7 +198,7 @@ errval_t aos_rpc_send_string(struct aos_rpc *rpc, const char *string)
     while (rlen < slen) {
         size_t chunk_size = MIN(slen-rlen, 8);
         memcpy(buf, string, chunk_size);
-        err = lmp_chan_send(&lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP,
+        err = lmp_chan_send(&init_lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP,
                             9, SEND_TEXT, buf[0], buf[1], buf[2],
                             buf[3], buf[4], buf[5], buf[6], buf[7]);
 
@@ -203,7 +219,7 @@ errval_t aos_rpc_get_ram_cap(struct aos_rpc *rpc, size_t req_bits,
                              struct capref *dest, size_t *ret_bits)
 {   
     // Allocate receive slot
-    errval_t err = lmp_chan_alloc_recv_slot(&rpc->lc);
+    errval_t err = lmp_chan_alloc_recv_slot(&rpc->init_lc);
     if (err_is_fail(err)){
         debug_printf("Could not allocate receive slot: %s.\n",
             err_getstring(err));
@@ -212,7 +228,7 @@ errval_t aos_rpc_get_ram_cap(struct aos_rpc *rpc, size_t req_bits,
     }
     
     // Request frame cap from init
-    err = lmp_chan_send2(&rpc->lc, LMP_SEND_FLAGS_DEFAULT,
+    err = lmp_chan_send2(&rpc->init_lc, LMP_SEND_FLAGS_DEFAULT,
                          NULL_CAP, REQUEST_FRAME_CAP,
                          req_bits); // TODO transfer error code
     
@@ -240,7 +256,7 @@ errval_t aos_rpc_get_dev_cap(struct aos_rpc *rpc, lpaddr_t paddr,
     // capability.
     
     // Allocate recieve slot
-    errval_t err = lmp_chan_alloc_recv_slot(&rpc->lc);
+    errval_t err = lmp_chan_alloc_recv_slot(&rpc->init_lc);
     if (err_is_fail(err)){
         debug_printf("Could not allocate receive slot: %s.\n",
             err_getstring(err));
@@ -249,7 +265,7 @@ errval_t aos_rpc_get_dev_cap(struct aos_rpc *rpc, lpaddr_t paddr,
     }
 
     // Send request to init
-    err = lmp_chan_send3(&rpc->lc, LMP_SEND_FLAGS_DEFAULT,
+    err = lmp_chan_send3(&rpc->init_lc, LMP_SEND_FLAGS_DEFAULT,
                          NULL_CAP, REQUEST_DEV_CAP, paddr,
                          length);
     
@@ -297,11 +313,11 @@ errval_t aos_rpc_serial_getchar(struct aos_rpc *chan, char *retc)
 {
     // TODO (milestone 4): implement functionality to request a character from
     // the serial driver.
-    struct lmp_chan lc = chan->lc;
+    struct lmp_chan init_lc = chan->init_lc;
 
     errval_t err;
 
-    err = lmp_chan_send1(&lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
+    err = lmp_chan_send1(&init_lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
         SERIAL_GET_CHAR);
 
     if (err_is_fail(err)) {
@@ -325,10 +341,10 @@ errval_t aos_rpc_serial_putchar(struct aos_rpc *chan, char c)
 {
     // TODO (milestone 4): implement functionality to send a character to the
     // serial port.
-    struct lmp_chan lc = chan->lc;
+    struct lmp_chan init_lc = chan->init_lc;
     errval_t err;
     
-    err = lmp_chan_send2(&lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
+    err = lmp_chan_send2(&init_lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
                             SERIAL_PUT_CHAR, c);
     if (err_is_fail(err)) {
         return err;
@@ -341,7 +357,7 @@ errval_t aos_rpc_process_spawn(struct aos_rpc *chan, char *name,
                                domainid_t *newpid)
 {
     // TODO (milestone 5): implement spawn new process rpc
-    struct lmp_chan lc = chan->lc; 
+    struct lmp_chan init_lc = chan->init_lc; 
     errval_t err;
 
     err = aos_rpc_send_string(chan, name);
@@ -349,7 +365,7 @@ errval_t aos_rpc_process_spawn(struct aos_rpc *chan, char *name,
         DEBUG_ERR(err, "fail to send process name to init.\n");
         return err;
     }
-    err = lmp_chan_send1(&lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
+    err = lmp_chan_send1(&init_lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
         PROCESS_SPAWN);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "fail to send PROCESS_SPAWN event to init.\n");
@@ -374,10 +390,10 @@ errval_t aos_rpc_process_get_name(struct aos_rpc *chan, domainid_t pid,
 {
     // TODO (milestone 5): implement name lookup for process given a process
     // id
-    struct lmp_chan lc = chan->lc; 
+    struct lmp_chan init_lc = chan->init_lc; 
     errval_t err;
 
-    err = lmp_chan_send2(&lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
+    err = lmp_chan_send2(&init_lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
         PROCESS_GET_NAME, pid);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "fail to send PROCESS_GET_NAME event to init.\n");
@@ -403,10 +419,10 @@ errval_t aos_rpc_process_get_all_pids(struct aos_rpc *chan,
 {
     // TODO (milestone 5): implement process id discovery
 
-    struct lmp_chan lc = chan->lc; 
+    struct lmp_chan init_lc = chan->init_lc; 
     errval_t err;
 
-    err = lmp_chan_send1(&lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
+    err = lmp_chan_send1(&init_lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
         PROCESS_GET_NO_OF_PIDS);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "fail to send PROCESS_GET_ALL_PIDS event to init.\n");
@@ -434,7 +450,7 @@ errval_t aos_rpc_process_get_all_pids(struct aos_rpc *chan,
     // 2. TO BE OPTIMIZED: Right now ask for pids one at a time instead of
     //    getting as many as possible in each msg
     for (size_t i = 0; i < *pid_count; i++) {
-        lmp_chan_send2(&lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP,
+        lmp_chan_send2(&init_lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP,
             PROCESS_GET_PID, i);
         event_dispatch(get_default_waitset());
         pids_deref[i] = chan->msg_buf[0];
@@ -487,6 +503,58 @@ errval_t aos_rpc_delete(struct aos_rpc *chan, char *path)
     return SYS_ERR_OK;
 }
 
+
+static errval_t aos_setup_channel(struct aos_rpc *rpc, struct lmp_chan *lc,
+                           struct capref remote_cap, struct event_closure ec)
+{
+    // Initialize LMP channel
+    lmp_chan_init(lc);
+
+    // Setup endpoint and allocate associated capability
+    struct capref ep_cap;
+    struct lmp_endpoint *my_ep;
+    
+    errval_t err = endpoint_create(FIRSTEP_BUFLEN, &ep_cap, &my_ep);
+
+    if(err_is_fail(err)){
+        return err;
+    }
+
+    // Set relevant members of LMP channel
+    lc->endpoint = my_ep;
+    lc->local_cap = ep_cap;
+    lc->remote_cap = remote_cap;
+    
+    // Allocate the slot for receiving
+    err = lmp_chan_alloc_recv_slot(lc);
+    if (err_is_fail(err)){
+        return err;
+    }
+
+    // Register our receive handler
+    err = lmp_chan_register_recv(lc, get_default_waitset(), ec);
+    if (err_is_fail(err)){
+        return err;
+    }
+
+    // Request dedicated channel
+    err = lmp_chan_send1(lc, LMP_SEND_FLAGS_DEFAULT,
+                         ep_cap, REQUEST_CHAN);
+    if (err_is_fail(err)) {
+        debug_printf("Could not send msg to init: %s.\n",
+            err_getstring(err));
+        err_print_calltrace(err);
+        return err;
+    }
+    
+    // Listen for response from init. When recv_handler returns,
+    // cap for spawnd should be in rpc->return_cap
+    event_dispatch(get_default_waitset());
+    lc->remote_cap = rpc->return_cap;
+    
+    return SYS_ERR_OK;
+}
+
 /**
  * The caller should configure
  * the right LMP Channel configs prior to calling this init
@@ -498,65 +566,76 @@ errval_t aos_rpc_init(struct aos_rpc *rpc)
     struct waitset *ws = get_default_waitset();
     waitset_init(ws);
 
-    // Initialize LMP channel
-    lmp_chan_init(&(rpc->lc));
-
     rpc->char_count = 0;
-    
-    // Setup endpoint and allocate associated capability
-    struct capref ep_cap;
-    struct lmp_endpoint *my_ep;
-    
-    errval_t err = endpoint_create(FIRSTEP_BUFLEN, &ep_cap, &my_ep);
-
-    if(err_is_fail(err)){
-        debug_printf("Could not allocate new endpoint.\n");
-        err_print_calltrace(err);
-        return err;
-    }
-
-    // Set relevant members of LMP channel
-    rpc->lc.endpoint = my_ep;
-    rpc->lc.local_cap = ep_cap;
-    rpc->lc.remote_cap = cap_initep;
-    
-    // Allocate the slot for receiving
-    err = lmp_chan_alloc_recv_slot(&rpc->lc);
-    if (err_is_fail(err)){
-        debug_printf("Could not allocate receive slot!\n");
-        err_print_calltrace(err);
-        return err;
-    }
-    
-    // Register our receive handler
-    err = lmp_chan_register_recv(&rpc->lc, ws, MKCLOSURE(recv_handler, rpc));
-    if (err_is_fail(err)){
-        debug_printf("Could not register receive handler!\n");
-        err_print_calltrace(err);
-        return err;
-    }
-    
-    // Request pid from init
-    // for some reason, could not see that initep is attached to init's dispatcher? 
-    err = lmp_chan_send1(&(rpc->lc), LMP_SEND_FLAGS_DEFAULT,
-                        rpc->lc.local_cap, REQUEST_CHAN);
-    if (err_is_fail(err)) {
-        debug_printf("Could not send msg to init: %s.\n",
-            err_getstring(err));
-        err_print_calltrace(err);
-        return err;
-    }
 
     // register in paging state
     struct paging_state *st = get_current_paging_state();
     
     st->rpc = rpc;
     
-    // Listen for response from init. When recv_handler returns,
-    // cap should be in rpc->return_cap
-    debug_printf("waiting for response from init\n");
+    errval_t err = aos_setup_channel(rpc, &rpc->init_lc, cap_initep,
+        MKCLOSURE(init_recv_handler, rpc));
+    if (err_is_fail(err)) {
+        debug_printf("Could not setup channel for init.\n");
+        err_print_calltrace(err);
+        return err;
+    }
+    
+    err = lmp_chan_send1(&rpc->init_lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP,
+                         REQUEST_SPAWND_EP);
+    if (err_is_fail(err)) {
+        debug_printf("Could not request spawnd endpoint from init.\n");
+        err_print_calltrace(err);
+        return err;
+    }
+    
     event_dispatch(get_default_waitset());
-    debug_printf("got response\n");
+    
+    struct capref cap_spawndep = rpc->return_cap;
+    
+    err = aos_setup_channel(rpc, &rpc->spawnd_lc, cap_spawndep,
+        MKCLOSURE(spawnd_recv_handler, rpc));
+    if (err_is_fail(err)) {
+        debug_printf("Could not setup channel for spawnd.\n");
+        err_print_calltrace(err);
+        return err;
+    }
+       
+    // // Request pid from init
+    // // for some reason, could not see that initep is attached to init's dispatcher?
+    // err = lmp_chan_send1(&(rpc->init_lc), LMP_SEND_FLAGS_DEFAULT,
+    //                     rpc->init_lc.local_cap, REQUEST_CHAN);
+    // if (err_is_fail(err)) {
+    //     debug_printf("Could not send msg to init: %s.\n",
+    //         err_getstring(err));
+    //     err_print_calltrace(err);
+    //     return err;
+    // }
+    //
+    // // Listen for response from init. When recv_handler returns,
+    // // cap for spawnd should be in rpc->return_cap
+    // event_dispatch(get_default_waitset());
+    //
+    // struct capref cap_spawndep = rpc->return_cap;
+    //
+    // aos_setup_channel(&rpc->spawnd_lc, cap_spawndep);
+    //
+    // // Register our receive handler
+    // err = lmp_chan_register_recv(&rpc->spawnd_lc, ws, MKCLOSURE(spawnd_recv_handler, rpc));
+    // if (err_is_fail(err)){
+    //     return err;
+    // }
+    //
+    // // Request pid from init
+    // // for some reason, could not see that initep is attached to init's dispatcher?
+    // err = lmp_chan_send1(&(rpc->spawnd_lc), LMP_SEND_FLAGS_DEFAULT,
+    //                     rpc->spawnd_lc.local_cap, REQUEST_CHAN);
+    // if (err_is_fail(err)) {
+    //     debug_printf("Could not send msg to spawnd: %s.\n",
+    //         err_getstring(err));
+    //     err_print_calltrace(err);
+    //     return err;
+    // }
     
     return SYS_ERR_OK;
 }

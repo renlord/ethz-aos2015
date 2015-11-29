@@ -35,6 +35,7 @@ enum rpc_code {
     PROCESS_GET_NAME,
     PROCESS_GET_NO_OF_PIDS,
     PROCESS_GET_PID,
+    REQUEST_SPAWND_EP,
 };
 
 enum lock_code {
@@ -47,7 +48,8 @@ enum lock_code {
 typedef uint32_t my_pid_t;
 
 struct aos_rpc {
-    struct lmp_chan lc; // lmp channel
+    struct lmp_chan init_lc;
+    struct lmp_chan spawnd_lc;
     struct capref return_cap; 
     size_t ret_bits;
     char msg_buf[AOS_RPC_MSGBUF_LEN];

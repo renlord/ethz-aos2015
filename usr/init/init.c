@@ -58,6 +58,7 @@ static errval_t reply_string(struct lmp_chan *lc, const char *string);
 // static struct process *register_process(struct spawninfo *si, const char *name);
 
 struct bootinfo *bi;
+struct capref cap_spawndep;
 
 struct ps_state {
     struct lmp_chan *lc;
@@ -570,7 +571,14 @@ void recv_handler(void *lc_in)
 
             break;
         }
-
+        
+        case REQUEST_SPAWND_EP:
+        {
+            debug_printf("sent spawnd_ep");
+            reply = true;
+            proc->send_msg[0] = REQUEST_SPAWND_EP;
+            proc->send_cap = cap_spawndep;
+        }
         default:
         {
             // include LIB_ERR_NOT_IMPLEMENTED? 
@@ -946,11 +954,10 @@ int main(int argc, char *argv[])
         exit(-1);
     }
     
-
     debug_printf("cap_initep, cap_selfep OK.\n");
 
     size_t offset = OMAP44XX_MAP_L4_PER_UART3 - 0x40000000;
-    // lvaddr_t uart_addr = (1UL << 28);
+
     lvaddr_t uart_addr;
     paging_alloc(get_current_paging_state(), (void**)&uart_addr,
         OMAP44XX_MAP_L4_PER_UART3_SIZE);
