@@ -19,9 +19,4 @@ lvaddr_t map_module(struct mem_region *module, size_t *retsize);
 const char *getopt(const char **optstring, char *buf, size_t buflen,
                    size_t *optlen);
 
-errval_t elf_load_and_relocate(lvaddr_t blob_start, size_t blob_size,
-                      void *to, lvaddr_t reloc_dest,
-                      uintptr_t *reloc_entry);
-
-
 #endif

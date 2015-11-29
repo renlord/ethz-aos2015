@@ -29,7 +29,7 @@
 
 extern char **environ;
 
-struct monitor_allocate_state {
+struct allocate_state {
     void          *vbase;
     genvaddr_t     elfbase;
 };
@@ -895,7 +895,7 @@ errval_t spawn_span_domain(struct spawninfo *si, struct capref vroot,
     return SYS_ERR_OK;
 }
 
-// // from barrelfish tree
+// from barrelfish tree
 static errval_t
 spawn_memory_prepare(size_t size, struct capref *cap_ret,
                      struct frame_identity *frameid)
@@ -937,164 +937,207 @@ spawn_memory_cleanup(struct capref cap)
     return SYS_ERR_OK;
 }
 
+static errval_t
+cpu_memory_cleanup(struct capref cap, void *buf)
+{
+    errval_t err;
+
+    err = paging_unmap(get_current_paging_state(), buf);
+    if (err_is_fail(err)) {
+        USER_PANIC_ERR(err, "paging unmap CPU driver memory failed\n");
+    }
+
+    err = cap_destroy(cap);
+    if (err_is_fail(err)) {
+        USER_PANIC_ERR(err, "CPU driver cap destroy failed\n");
+    }
+    return SYS_ERR_OK;
+}
 
 
 // \brief 
 // prepares memory for the new CPU driver
 // adopted from main Barrelfish source tree.
 static errval_t
-cpu_memory_prepare(struct spawninfo *si, 
-                   size_t *size, 
+cpu_memory_prepare(size_t *size, 
                    struct capref *cap_ret, 
                    void **buf_ret, 
                    struct frame_identity *frameid)
 {
     errval_t err;
-    struct capref cap;
-    void *buf;
 
-    err = frame_alloc(&cap, *size, size);
+    err = frame_alloc(cap_ret, *size, size);
     if (err_is_fail(err)) {
         USER_PANIC("Failed to allocate %zd memory\n", *size);
     }
 
-    err = paging_map_frame_attr(si->vspace, &buf,
-                    *size, cap, VREGION_FLAGS_READ_WRITE, 
+    err = paging_map_frame_attr(get_current_paging_state(), buf_ret,
+                    *size, *cap_ret, VREGION_FLAGS_READ_WRITE, 
                     NULL, NULL);
     if (err_is_fail(err)) {
         return err_push(err, LIB_ERR_VSPACE_MAP);
     }
 
-    // err = vspace_map_one_frame(&buf, *size, cap, NULL, NULL);
-    // if (err_is_fail(err)) {
-    //     return err_push(err, LIB_ERR_VSPACE_MAP);
-    // }
-
-    // // Mark memory as remote
-    // err = cap_mark_remote(cap);
-    // if (err_is_fail(err)) {
-    //     return err;
-    // }
-
-    err = invoke_frame_identify(cap, frameid);
+    err = invoke_frame_identify(*cap_ret, frameid);
     if (err_is_fail(err)) {
         return err_push(err, LIB_ERR_FRAME_IDENTIFY);
     }
 
-    *cap_ret = cap;
-    *buf_ret = buf;
     return SYS_ERR_OK;
 }
 
-errval_t 
-spawn_core_with_kernel(struct spawninfo *si, 
-                       struct bootinfo *bi,
-                       coreid_t coreid, 
-                       const char *cmdline,
-                       struct capref kern_cap)
+static errval_t 
+elfload_allocate(void *state, genvaddr_t base, size_t size, uint32_t flags,
+                    void **retbase)
+{
+    struct allocate_state *s = state;
+
+    *retbase = (char *)s->vbase + base - s->elfbase;
+    return SYS_ERR_OK;
+}
+
+
+/**
+ * \brief loads elf image, then relocates it
+ * 
+ * \param blob_start    
+ * \param blob_size
+ * \param to
+ * \param reloc_dest
+ * \param reloc_entry
+ */
+static errval_t 
+elf_load_and_relocate(lvaddr_t blob_start, size_t blob_size,
+                      void *to, lvaddr_t reloc_dest,
+                      uintptr_t *reloc_entry)
+{
+    genvaddr_t entry; // entry point of the loaded elf image
+    struct Elf32_Ehdr *head = (struct Elf32_Ehdr *)blob_start;
+    struct Elf32_Shdr *symhead, *rel, *symtab;
+    errval_t err;
+
+    struct allocate_state state;
+    state.vbase   = to;
+    state.elfbase = elf_virtual_base(blob_start);
+#if 0
+    debug_printf("elf allocate state vbase: 0x%08x | elfbase: 0x%08x\n", 
+                    state.vbase, state.elfbase);
+    debug_printf("elf blob_start: 0x%08x\n", blob_start);
+    debug_printf("hi 1\n");
+#endif
+    err = elf_load(head->e_machine,
+                   elfload_allocate,
+                   &state,
+                   blob_start, blob_size,
+                   &entry);
+    if (err_is_fail(err)) {
+        return err;
+    }
+    // Relocate to new physical base address
+    symhead = (struct Elf32_Shdr *)(blob_start + (uintptr_t)head->e_shoff);
+    rel = elf32_find_section_header_type(symhead, head->e_shnum, SHT_REL);
+    symtab = elf32_find_section_header_type(symhead, head->e_shnum, SHT_DYNSYM);
+    assert(rel != NULL && symtab != NULL);
+
+    elf32_relocate(reloc_dest, state.elfbase,
+                   (struct Elf32_Rel *)(blob_start + rel->sh_offset),
+                   rel->sh_size,
+                   (struct Elf32_Sym *)(blob_start + symtab->sh_offset),
+                   symtab->sh_size,
+                   state.elfbase, state.vbase);
+    *reloc_entry = entry - state.elfbase + reloc_dest;
+    return SYS_ERR_OK;
+}
+
+
+errval_t spawn_core_load_kernel(struct bootinfo *bi,
+                                coreid_t coreid, 
+                                int hwid, 
+                                const char *cmdline,
+                                struct frame_identity urpc_frame_id,
+                                struct capref kcb)
 {
     errval_t err;
 
-    /* Get the module from the multiboot */
-    struct mem_region *module = multiboot_find_module(bi, KERNEL_BIN_NAME);
-    if (module == NULL) {
-        debug_printf("could not find module [%s] in multiboot image\n", 
-            KERNEL_BIN_NAME);
+    struct mem_region *mr;
+    mr = multiboot_find_module(bi, KERNEL_BIN_NAME);
+    if (mr == NULL) {
         return SPAWN_ERR_FIND_MODULE;
     }
 
-    /* Lookup and map the elf image */
-    lvaddr_t binary;
-    size_t binary_size;
-    genpaddr_t phyaddr;
-    err = spawn_map_module(module, &binary_size, &binary, &phyaddr);
-    if (err_is_fail(err)) {
-        return err_push(err, SPAWN_ERR_ELF_MAP);
-    }
-
-    /* Determine cpu type */
-    err = spawn_determine_cputype(si, binary);
-    if (err_is_fail(err)) {
-        return err_push(err, SPAWN_ERR_DETERMINE_CPUTYPE);
-    }
-
-    /* Initialize cspace */
-    err = spawn_setup_cspace(si);
-    if (err_is_fail(err)) {
-        return err_push(err, SPAWN_ERR_SETUP_CSPACE);
-    }
-
-    /* Initialize vspace */
-    err = spawn_setup_vspace(si);
-    if (err_is_fail(err)) {
-        return err_push(err, SPAWN_ERR_VSPACE_INIT);
-    }
-
-    /* Prepare CPU Kernel Address Space */ 
-    assert(sizeof(struct arm_core_data) <= BASE_PAGE_SIZE);
     struct {
-        size_t                  size;
-        struct capref           cap;
-        void                    *buf;
-        struct frame_identity   frameid;
-    } cpu_mem = {
-        .size = BASE_PAGE_SIZE + elf_virtual_base(binary)
+        size_t              size;
+        lvaddr_t            vaddr;
+        genpaddr_t          paddr;
+        struct mem_region   *mem_region;
+    } cpu_blob = {
+        .mem_region = mr
     };
 
-    err = cpu_memory_prepare(si, 
-                             &cpu_mem.size, 
-                             &cpu_mem.cap,
-                             &cpu_mem.buf,
-                             &cpu_mem.frameid);
+    err = spawn_map_module(cpu_blob.mem_region, 
+                           &cpu_blob.size,
+                           &cpu_blob.vaddr,
+                           &cpu_blob.paddr);
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "cpu_memory_prepare failed\n");
+        DEBUG_ERR(err, "failed to map module\n");
+        return err_push(err, SPAWN_ERR_MAP_MODULE);
+    }
+
+    // allocate memory for cpu driver: we allocate a page for arm_core_data and
+    // the reset for the elf image
+    assert(sizeof(struct arm_core_data) <= BASE_PAGE_SIZE);
+    struct {
+        size_t                size;
+        struct capref         cap;
+        void                  *buf;
+        struct frame_identity frameid;
+    } cpu_mem = {
+        .size = BASE_PAGE_SIZE + elf_virtual_size(cpu_blob.vaddr)
+    };
+    err = cpu_memory_prepare(&(cpu_mem.size),
+                             &(cpu_mem.cap),
+                             &(cpu_mem.buf),
+                             &(cpu_mem.frameid));
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "cpu_memory_prepare");
         return err;
     }
 
-    /* Load and relocate Kernel ELF */
-    uintptr_t reloc_entry = 0;
-    err = elf_load_and_relocate(binary, 
-                                binary_size,
-                                cpu_mem.buf + BASE_PAGE_SIZE, 
+    // Load cpu driver to the allocate space and do relocatation
+    uintptr_t reloc_entry= 0;
+    err = elf_load_and_relocate(cpu_blob.vaddr,
+                                cpu_blob.size,
+                                cpu_mem.buf + BASE_PAGE_SIZE,
                                 cpu_mem.frameid.base + BASE_PAGE_SIZE,
                                 &reloc_entry);
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "fail elf load and relocation\n");
+        DEBUG_ERR(err, "cpu_memory_prepare");
         return err;
     }
-
-    // genvaddr_t entry;
-    // void *arch_info;
-    // err = spawn_arch_load(si, binary, binary_size, &entry, &arch_info);
-    // if (err_is_fail(err)) {
-    //     DEBUG_ERR(err, "fail arch load\n");
-    //     err_print_calltrace(err);   
-    //     return err;
-    // }
-
-    /* Chunk of memory to load on the app core */
+    
+    /* Chunk of memory to load other stuff on the app core */
     struct capref spawn_mem_cap;
     struct frame_identity spawn_mem_frameid;
-    err = spawn_memory_prepare(ARM_CORE_DATA_PAGES * BASE_PAGE_SIZE, 
+    err = spawn_memory_prepare(ARM_CORE_DATA_PAGES * BASE_PAGE_SIZE,
                                &spawn_mem_cap,
                                &spawn_mem_frameid);
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "spawn_memory_prepare fail\n");
+        DEBUG_ERR(err, "spawn_memory_prepare");
         return err;
     }
 
     /* Setup the core_data struct in the new kernel */
-    struct arm_core_data *core_data = (struct arm_core_data *) cpu_mem.buf;
+    struct arm_core_data *core_data = (struct arm_core_data *)cpu_mem.buf;
 
-    struct Elf32_Ehdr *head32 = (struct Elf32_Ehdr *)binary;
+    struct Elf32_Ehdr *head32 = (struct Elf32_Ehdr *)cpu_blob.vaddr;
     core_data->elf.size = sizeof(struct Elf32_Shdr);
-    core_data->elf.addr = phyaddr + (uintptr_t)head32->e_shoff;
+    core_data->elf.addr = cpu_blob.paddr + (uintptr_t)head32->e_shoff;
     core_data->elf.num  = head32->e_shnum;
 
-    core_data->module_start        = phyaddr;
-    core_data->module_end          = phyaddr + binary_size;
-    //core_data->urpc_frame_base     = urpc_frame_id.base;
-    //core_data->urpc_frame_bits     = urpc_frame_id.bits;
+    core_data->module_start        = cpu_blob.paddr;
+    core_data->module_end          = cpu_blob.paddr + cpu_blob.size;
+    core_data->urpc_frame_base     = urpc_frame_id.base;
+    core_data->urpc_frame_bits     = urpc_frame_id.bits;
     //core_data->monitor_binary      = monitor_blob.paddr;
     //core_data->monitor_binary_size = monitor_blob.size;
     core_data->memory_base_start   = spawn_mem_frameid.base;
@@ -1102,7 +1145,16 @@ spawn_core_with_kernel(struct spawninfo *si,
     core_data->src_core_id         = disp_get_core_id();
     //core_data->src_arch_id         = my_arch_id;
     core_data->dst_core_id         = coreid;
-    //core_data->chan_id             = chanid;
+#ifdef CONFIG_FLOUNDER_BACKEND_UMP_IPI
+    core_data->chan_id             = chanid;
+#endif
+//     struct frame_identity fid;
+//     err = invoke_frame_identify(kcb, &fid);
+//     if (err_is_fail(err)) {
+//         USER_PANIC_ERR(err, "Invoke frame identity for KCB failed. "
+//                             "Did you add the syscall handler for that architecture?");
+//     }
+//     core_data->kcb = (genpaddr_t) fid.base;
 
     if (cmdline != NULL) {
         // copy as much of command line as will fit
@@ -1114,31 +1166,25 @@ spawn_core_with_kernel(struct spawninfo *si,
 
     /* Invoke kernel capability to boot new core */
     // XXX: Confusion address translation about l/gen/addr
-    int hwid = 1;
-    err = invoke_monitor_spawn_core(hwid, CPU_ARM, (forvaddr_t) reloc_entry,
-                                    kern_cap);
+    err = invoke_monitor_spawn_core(hwid, CPU_ARM, (forvaddr_t)reloc_entry, 
+                                    kcb);
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "failed to spawn app core\n");
         return err_push(err, MON_ERR_SPAWN_CORE);
     }
 
-
-    /* can't clean since there is no paging_unmap!!! */
-
-    // err = cpu_memory_cleanup(cpu_mem.cap, cpu_mem.buf);
-    // if (err_is_fail(err)) {
-    //     DEBUG_ERR(err, "failed to clean cpu memory\n");
-    //     return err;
-    // }
+    err = cpu_memory_cleanup(cpu_mem.cap, cpu_mem.buf);
+    if (err_is_fail(err)) {
+        return err;
+    }
 
     err = spawn_memory_cleanup(spawn_mem_cap);
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "failed to clean spawn memory\n");
         return err;
     }
 
     return SYS_ERR_OK;
 }
+
 
 
  

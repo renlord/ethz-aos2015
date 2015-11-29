@@ -28,12 +28,6 @@
 #error "Unexpected architecture."
 #endif
 
-struct monitor_allocate_state {
-    void          *vbase;
-    genvaddr_t     elfbase;
-};
-
-
 /**
  * \brief Convert elf flags to vregion flags
  */
@@ -185,67 +179,6 @@ static errval_t elf_allocate(void *state, genvaddr_t base, size_t size,
     return SYS_ERR_OK;
 } // end function: elf_allocate
 
-static errval_t elfload_allocate(void *state, genvaddr_t base,
-                                 size_t size, uint32_t flags,
-                                 void **retbase)
-{
-    struct monitor_allocate_state *s = state;
-
-    *retbase = (char *)s->vbase + base - s->elfbase;
-    return SYS_ERR_OK;
-}
-
-
-/**
- * \brief loads elf image, then relocates it
- * 
- * \param blob_start    
- * \param blob_size
- * \param to
- * \param reloc_dest
- * \param reloc_entry
- */
-errval_t 
-elf_load_and_relocate(lvaddr_t blob_start, size_t blob_size,
-                      void *to, lvaddr_t reloc_dest,
-                      uintptr_t *reloc_entry)
-{
-    genvaddr_t entry; // entry point of the loaded elf image
-    struct Elf32_Ehdr *head = (struct Elf32_Ehdr *)blob_start;
-    struct Elf32_Shdr *symhead, *rel, *symtab;
-    errval_t err;
-
-    //state.vbase = (void *)ROUND_UP(to, ARM_L1_ALIGN);
-    struct monitor_allocate_state state;
-    state.vbase   = to;
-    state.elfbase = elf_virtual_base(blob_start);
-    debug_printf("hi 1\n");
-    err = elf_load(head->e_machine,
-                   elfload_allocate,
-                   &state,
-                   blob_start, blob_size,
-                   &entry);
-    if (err_is_fail(err)) {
-        return err;
-    }
-    debug_printf("hi 2\n");
-    // Relocate to new physical base address
-    symhead = (struct Elf32_Shdr *)(blob_start + (uintptr_t)head->e_shoff);
-    rel = elf32_find_section_header_type(symhead, head->e_shnum, SHT_REL);
-    symtab = elf32_find_section_header_type(symhead, head->e_shnum, SHT_DYNSYM);
-    assert(rel != NULL && symtab != NULL);
-
-    elf32_relocate(reloc_dest, state.elfbase,
-                   (struct Elf32_Rel *)(blob_start + rel->sh_offset),
-                   rel->sh_size,
-                   (struct Elf32_Sym *)(blob_start + symtab->sh_offset),
-                   symtab->sh_size,
-                   state.elfbase, state.vbase);
-    debug_printf("hi 3\n");
-    *reloc_entry = entry - state.elfbase + reloc_dest;
-    return SYS_ERR_OK;
-}
-
 /**
  * \brief Load the elf image
  */
@@ -270,14 +203,14 @@ errval_t spawn_arch_load(struct spawninfo *si,
     si->tls_init_base = 0;
     si->tls_init_len = si->tls_total_len = 0;
 
-    debug_printf("spawn_arch_load: about to load elf %p\n", elf_allocate);
+    //debug_printf("spawn_arch_load: about to load elf %p\n", elf_allocate);
     // Load the binary
     err = elf_load(EM_HOST, elf_allocate, si, binary, binary_size, entry);
     if (err_is_fail(err)) {
         return err;
     }
 
-    debug_printf("hello here\n");
+    //debug_printf("hello here\n");
     struct Elf32_Shdr* got_shdr =
         elf32_find_section_header_name(binary, binary_size, ".got");
     if (got_shdr)

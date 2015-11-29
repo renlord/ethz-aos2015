@@ -33,6 +33,8 @@
 // minimum size to allocate
 #define MIN_BLOB_SIZE (ENTRIES_PER_FRAME*BASE_PAGE_SIZE) 
 
+#define PRINT_CALLS 0
+
 #define MAX(a,b) \
     ({ __typeof__ (a) _a = (a); \
      __typeof__ (b) _b = (b); \
@@ -66,8 +68,8 @@ static errval_t arml2_alloc(struct capref *ret)
     return SYS_ERR_OK;
 }
 
-size_t get_max(struct node *x, struct node *y);
-size_t get_max(struct node *x, struct node *y)
+static size_t get_max(struct node *x, struct node *y);
+static size_t get_max(struct node *x, struct node *y)
 {
     size_t xs = ALLOCED_BLOB(x) ? 0 : x->max_size;
     size_t ys = ALLOCED_BLOB(y) ? 0 : y->max_size;
@@ -84,6 +86,7 @@ static struct node *create_node(struct paging_state *st)
     n->allocated = false;
     n->left = NULL;
     n->right = NULL;
+
     return n;
 }
 
@@ -95,10 +98,10 @@ void remove_node(struct node *n){
 /**
  * Allocate memory
  */
-lvaddr_t buddy_alloc(struct paging_state *st,
-                     struct node *cur, size_t req_size);
-lvaddr_t buddy_alloc(struct paging_state *st,
-                     struct node *cur, size_t req_size)
+static lvaddr_t buddy_alloc(struct paging_state *st,
+                            struct node *cur, size_t req_size);
+static lvaddr_t buddy_alloc(struct paging_state *st,
+                            struct node *cur, size_t req_size)
 {   
     // Pre-conditions
     assert(st);
@@ -106,9 +109,15 @@ lvaddr_t buddy_alloc(struct paging_state *st,
     
     // Size available in subtree is less than what's requested
     if (cur->max_size < req_size){
+        abort();
         return -1;
     }
-        
+    
+    if((lvaddr_t)cur == 0x0161d8f0){
+        debug_printf("node 0x0161d8f0, "
+                     "max size: %d\n", cur->max_size);
+    }
+    
     // Case 1: Node is a leaf (i.e. blob of memory)
     if (!cur->left){
         assert(!cur->allocated);
@@ -134,9 +143,21 @@ lvaddr_t buddy_alloc(struct paging_state *st,
             cur->max_size = half_size;
             cur->allocated = true;
             
+            if((lvaddr_t)left_buddy == 0x0161d8f0){
+                debug_printf("left_buddy 0x0161d8f0, "
+                             "max size: %d\n", left_buddy->max_size);
+            }
+            
+            if((lvaddr_t)right_buddy == 0x0161d8f0){
+                debug_printf("right_buddy 0x0161d8f0, "
+                             "max size: %d\n", right_buddy->max_size);
+            }
+            
             // Sanity checks
             assert(left_buddy->addr < right_buddy->addr);
             assert((left_buddy->addr ^ right_buddy->addr) == half_size);
+            assert(left_buddy->max_size >= MIN_BLOB_SIZE);
+            assert(right_buddy->max_size >= MIN_BLOB_SIZE);
             
             return buddy_alloc(st, left_buddy, req_size);
             
@@ -147,8 +168,7 @@ lvaddr_t buddy_alloc(struct paging_state *st,
             debug_get_free_space(&pre_free, &pre_alloc);
             */
             
-            assert(cur->max_size > 0);
-
+            assert(cur->max_size > MIN_BLOB_SIZE);
             cur->allocated = true;
             
             /*
@@ -171,13 +191,17 @@ lvaddr_t buddy_alloc(struct paging_state *st,
             (cur->right->max_size >= req_size));
         
         if (ALLOCED_BLOB(cur->left) || left_too_small || right_fits_better){
-            if(cur->right->max_size == 0){
-                return -1;
-            }
+            // Sanity check
+            assert(cur->right->max_size >= MIN_BLOB_SIZE);
+
             best_fit = cur->right;
         } else {
             // Sanity check
-            assert(cur->left->max_size);
+            if(cur->left->max_size < MIN_BLOB_SIZE){
+                debug_printf("cur->left addr: 0x%08x\n", cur->left);
+            }
+            
+            assert(cur->left->max_size >= MIN_BLOB_SIZE);
             
             best_fit = cur->left;
         }
@@ -250,33 +274,44 @@ static size_t debug_get_alloc_space_aux(struct node *cur)
 
 void debug_get_free_space(size_t *free_s, size_t *alloc_s, size_t *max_s)
 {
+#if PRINT_CALLS
+    debug_printf("debug_get_free_space called\n");
+#endif
+    
     *free_s = debug_get_free_space_aux(current.root);
     *alloc_s = debug_get_alloc_space_aux(current.root);
     *max_s = current.root->max_size;
+
+#if PRINT_CALLS
+    debug_printf("debug_get_free_space returned\n");
+#endif
 }
 
-static void buddy_dealloc(struct node *cur, lvaddr_t addr) 
+static size_t buddy_dealloc(struct node *cur, lvaddr_t addr) 
 {
     assert(cur);
     assert((cur->left && cur->right) || (!cur->left && !cur->right));
 
+    size_t return_size;
+
     if (!cur->left) {
-        // We're a leaft
+        // We're a leaf
         
         if (cur->allocated) {
             assert(cur->addr == addr);
             cur->allocated = false;
-            return;
-        } else  {
-            return;
+            return cur->max_size;
+        } else {
+            abort();
+            return 0;
         }
     } else {
         // We're intermediate node
         
         if (cur->right->addr <= addr) {
-            buddy_dealloc(cur->right, addr);
+            return_size = buddy_dealloc(cur->right, addr);
         } else {
-            buddy_dealloc(cur->left, addr);
+            return_size = buddy_dealloc(cur->left, addr);
         }    
     }
     
@@ -297,6 +332,8 @@ static void buddy_dealloc(struct node *cur, lvaddr_t addr)
     } else {
         cur->max_size = get_max(cur->left, cur->right);
     }
+    
+    return return_size;
 }
 
 uint32_t stack[EXC_STACK_SIZE];
@@ -364,24 +401,30 @@ static errval_t allocate_pt(struct paging_state *st, lvaddr_t addr,
         // TODO remove
 
 #if 0
-        debug_printf("proxy MEM(0x%08x,%d,%d,%d,%d)",
-            next_addr, next_bytes, l1_slot, l2_slot_aligned, l2_entries);
-        debug_printf("disp name: %s\n", st->check);
-        debug_printf("st: 0x%08x\n", st);
-        debug_printf("l1_slot: %d\n", l1_slot);
-        debug_printf("l2_slot: %d\n", l2_slot);
-        debug_printf("l2_slot_aligned: %d\n", l2_slot_aligned);
-        debug_printf("pages: %d\n", pages);
-        debug_printf("l2_entries: %d\n\n", l2_entries);
-        debug_printf("align: %d\n\n", align);
+        // debug_printf("proxy MEM(0x%08x,%d,%d,%d,%d)",
+            // next_addr, next_bytes, l1_slot, l2_slot_aligned, l2_entries);
+        debug_printf("st:                0x%08x\n", st);
+        debug_printf("next_addr:         0x%08x\n", next_addr);
+        debug_printf("next_bytes:        0x%08x\n", next_bytes);
+        debug_printf("next_cap_offset:   0x%08x\n", cap_offset);
+        debug_printf("l1_slot:           %d\n",     l1_slot);
+        debug_printf("l2_slot:           %d\n",     l2_slot);
+        debug_printf("l2_slot_aligned:   %d\n",     l2_slot_aligned);
+        debug_printf("pages:             %d\n",     pages);
+        debug_printf("l2_entries:        %d\n",     l2_entries);
+        debug_printf("l2_entries_mapped: %d\n\n",   l2_entries_mapped);
+        debug_printf("align:             %d\n\n",   align);
 #endif
         // Allocate and insert l2-capability
         struct capref *l2_cap = &(st->l2_caps[l1_slot]);
-        if(capref_is_null(*l2_cap)) {
+        if(capref_is_null(*l2_cap)){
             // Allocate capability
             arml2_alloc(l2_cap);
 
             // Insert L2 pagetable in L1 pagetable
+            // debug_printf("L1-MAPPING: l1: %d, l2 %d, addr 0x%08x for st 0x%08x\n",
+            //     l1_slot, l2_slot_aligned, next_addr, st);
+                
             err = vnode_map(st->l1_cap, *l2_cap, l1_slot, flags, 0, 1);
             if (err_is_fail(err)) {
                 debug_printf("Could not insert L2 pagetable in L1 pagetable "
@@ -389,9 +432,21 @@ static errval_t allocate_pt(struct paging_state *st, lvaddr_t addr,
                 err_print_calltrace(err);
                 return err;
             }
+            
+            // debug_printf("\n");
+            // debug_printf("Mapped l1-entries for 0x%08x:\n", st);
+            // for(uint32_t j = 0; j < ARM_L1_USER_ENTRIES; j++){
+            //     if(!capref_is_null(st->l2_caps[j])){
+            //         debug_printf("slot %d\n", j);
+            //     }
+            // }
+            // debug_printf("\n");
         }
 
         //Map frame/dev capability in L2 pagetable
+        if(l1_slot == 0)
+            debug_printf("L2-MAPPING: l1: %d, l2: %d, entries: %d, addr: 0x%08x\n",
+                l1_slot, l2_slot_aligned, l2_entries, next_addr);
         err = vnode_map(*l2_cap, frame_cap, l2_slot_aligned,
                         flags, cap_offset, l2_entries);
         if (err_is_fail(err)) {
@@ -400,7 +455,6 @@ static errval_t allocate_pt(struct paging_state *st, lvaddr_t addr,
             err_print_calltrace(err);
             return err;
         }
-
         l2_entries_mapped += l2_entries;
     }
 
@@ -411,8 +465,11 @@ errval_t paging_map_user_device(struct paging_state *st, lvaddr_t addr,
                             struct capref frame_cap, uint64_t start_offset, 
                             size_t length, int flags) 
 {
-    debug_printf("paging_map_user_device called\n");
-    
+#if PRINT_CALLS
+    debug_printf("paging_map_user_device called for st 0x%08x, addr 0x%08x\n",
+        st, addr);
+#endif
+
     errval_t err;
     
     cslot_t l1_slot = ARM_L1_USER_OFFSET(addr);
@@ -446,6 +503,9 @@ errval_t paging_map_user_device(struct paging_state *st, lvaddr_t addr,
         err_print_calltrace(err);
         return err;
     }
+#if PRINT_CALLS    
+    debug_printf("paging_map_user_device returned\n");
+#endif
     return SYS_ERR_OK;
 }
 
@@ -457,11 +517,16 @@ void page_fault_handler(enum exception_type type, int subtype,
                         void *addr, arch_registers_state_t *regs,
                         arch_registers_fpu_state_t *fpuregs)
 {
+#if PRINT_CALLS
+    debug_printf("page_fault_handler called for addr 0x%08x\n", addr);
+#endif
+    
     lvaddr_t vaddr = (lvaddr_t)addr;
     // We assume all structs are less than 1KB, so pagefaults on addrs
     // less than this count as NULL pointer exception
+    long long unsigned limit = (1ULL << 32) - BASE_PAGE_SIZE;
     type = (vaddr < MAX_STRUCT_SIZE) ? EXCEPT_NULL
-         : (vaddr >= VADDR_OFFSET - BASE_PAGE_SIZE) ? EXCEPT_OTHER
+         : (vaddr >= limit) ? EXCEPT_OTHER
          : type;
     
     // Handle non-pagefault exceptions
@@ -492,6 +557,7 @@ void page_fault_handler(enum exception_type type, int subtype,
     size_t ret_size;
     errval_t err;
    
+    //debug_printf("hello 1\n");
     const char *obj = "init";
     const char *prog = disp_name();
     bool is_init = strlen(prog) == 4 && strncmp(obj, prog, 4) == 0;
@@ -503,7 +569,7 @@ void page_fault_handler(enum exception_type type, int subtype,
         err = aos_rpc_get_ram_cap(current.rpc, req_bits, &frame_cap, &ret_bits);
         ret_size = (1UL << ret_bits);
     }
-    
+    //debug_printf("hello 2\n");
     if (err != SYS_ERR_OK){
         debug_printf("Could not allocate frame for addr 0x%08x: %s\n",
                      addr, err_getstring(err));
@@ -516,17 +582,24 @@ void page_fault_handler(enum exception_type type, int subtype,
                      req_size, addr, ret_size);
         abort();
     }
-     
+    
+    //debug_printf("hi\n");
     // Allocate L1 and L2 entries, if needed, and insert frame cap
     allocate_pt(&current, (lvaddr_t)addr, frame_cap,
                 0, ret_size, VREGION_FLAGS_READ_WRITE, true);
+                
+#if PRINT_CALLS
+    debug_printf("page_fault_handler returned\n");
+#endif
 }
 
 errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
         struct capref pdir)
 {
+#if PRINT_CALLS
     debug_printf("paging_init_state called for st: 0x%08x\n", st);
-    
+#endif
+        
     start_vaddr = MAX(start_vaddr, V_OFFSET);
     st->l1_cap = pdir;
     
@@ -536,25 +609,24 @@ errval_t paging_init_state(struct paging_state *st, lvaddr_t start_vaddr,
     
     st->next_node = st->all_nodes;
     st->root = create_node(st);
-    st->root->max_size = (1UL << 31); // TODO subtract stack size
+    st->root->max_size = (1ULL<<32); // TODO subtract stack size
     st->root->addr = 0;
-    
-    const char *name = disp_name();
-    for(uint8_t i = 0; i < 9; i++){
-        st->check[i] = name[i];
-    }
-    st->check[9] = '\0';
-    
+
     buddy_alloc(st, st->root, MAX(V_OFFSET, start_vaddr-1));
-        
+    
+#if PRINT_CALLS
+    debug_printf("paging_init_state returned\n");
+#endif
     return SYS_ERR_OK;
 }
 
 
 errval_t paging_init(void)
 {
+#if PRINT_CALLS
     debug_printf("paging_init with current: 0x%08x\n", &current);
-    debug_printf("created by: %s\n", current.check);
+#endif
+    
     // TODO: initialize self-paging handler
     
     
@@ -579,17 +651,23 @@ errval_t paging_init(void)
     const char *prog = disp_name();
     bool is_init = strlen(prog) == 4 && strncmp(obj, prog, 4) == 0;
     
-    lvaddr_t start_addr = is_init ? 0 : (1UL<<29);
+    lvaddr_t start_addr = is_init ? 0 : (1UL<<30);
     
     set_current_paging_state(&current);
     paging_init_state(&current, start_addr, l1_cap);
     
+#if PRINT_CALLS
+    debug_printf("paging_init returned\n");
+#endif
     return SYS_ERR_OK;
 }
 
 void paging_init_onthread(struct thread *t)
 {
-    // TODO: setup exception handler for thread `t'.
+#if PRINT_CALLS
+    debug_printf("paging_init_onthread called for thread 0x%08x\n", t);
+#endif
+
     void *buf;
     errval_t err = paging_alloc(&current, &buf, EXC_STACK_SIZE);
     if (err_is_fail(err)) {
@@ -601,9 +679,14 @@ void paging_init_onthread(struct thread *t)
         return;
     }
     
+    page_fault_handler(EXCEPT_PAGEFAULT, 0, buf, NULL, NULL);
+    
     t->exception_stack = buf;
     t->exception_stack_top = buf+EXC_STACK_SIZE*4; // TODO minus 1 here?
     t->exception_handler = page_fault_handler;
+#if PRINT_CALLS
+    debug_printf("paging_init_onthread returned\n");
+#endif
 }
 
 /**
@@ -614,6 +697,9 @@ void paging_init_onthread(struct thread *t)
 errval_t paging_region_init(struct paging_state *st, struct paging_region *pr, 
     size_t size)
 {
+#if PRINT_CALLS
+    debug_printf("paging_region_init called for st 0x%08x\n", st);
+#endif
     void *base;
     errval_t err = paging_alloc(st, &base, size);
     if (err_is_fail(err)) {
@@ -624,6 +710,9 @@ errval_t paging_region_init(struct paging_state *st, struct paging_region *pr,
     pr->current_addr = pr->base_addr;
     pr->region_size  = size;
 
+#if PRINT_CALLS
+    debug_printf("paging_region_init returned\n");
+#endif
     return SYS_ERR_OK;
 }
 
@@ -635,6 +724,10 @@ errval_t paging_region_init(struct paging_state *st, struct paging_region *pr,
 errval_t paging_region_map(struct paging_region *pr, size_t req_size,
                            void **retbuf, size_t *ret_size)
 {
+#if PRINT_CALLS
+    debug_printf("paging_region_map called for region 0x%08x"
+                 ", req_size: %d\n", pr, req_size);
+#endif
     lvaddr_t end_addr = pr->base_addr + pr->region_size;
     ssize_t rem = end_addr - pr->current_addr;
     if (rem > req_size) {
@@ -651,6 +744,10 @@ errval_t paging_region_map(struct paging_region *pr, size_t req_size,
     } else {
         return LIB_ERR_VSPACE_MMU_AWARE_NO_SPACE;
     }
+#if PRINT_CALLS
+    debug_printf("paging_region_map returned addr 0x%08x, ret_size: %d\n",
+        (lvaddr_t)*retbuf, *ret_size);
+#endif
     return SYS_ERR_OK;
 }
 
@@ -674,6 +771,15 @@ errval_t paging_region_unmap(struct paging_region *pr, lvaddr_t base,
  */
 errval_t paging_alloc(struct paging_state *st, void **buf, size_t bytes)
 {
+#if PRINT_CALLS
+    debug_printf("paging_alloc called for st 0x%08x, bytes: %d\n",
+        st, bytes);
+#endif
+    
+    if(bytes == 0){
+        return SYS_ERR_VM_MAP_SIZE;
+    }
+    
     assert(st != NULL);
     current = *st;
     bytes = ROUND_UP(bytes, MIN_BLOB_SIZE);
@@ -685,8 +791,12 @@ errval_t paging_alloc(struct paging_state *st, void **buf, size_t bytes)
         debug_printf("Could not allocate space\n");
         exit(-1);
     }
-    
+    assert((lvaddr_t)*buf >= V_OFFSET);
+
     // TODO handle error
+#if PRINT_CALLS
+    debug_printf("paging_alloc returned 0x%08x\n", (lvaddr_t) *buf);
+#endif
     return SYS_ERR_OK;
 }
 
@@ -695,7 +805,13 @@ errval_t paging_alloc(struct paging_state *st, void **buf, size_t bytes)
  */
 errval_t paging_dealloc(struct paging_state *st, void *buf)
 {
+#if PRINT_CALLS
+    debug_printf("paging_dealloc called\n");
+#endif
     buddy_dealloc(st->root, (lvaddr_t)buf);
+#if PRINT_CALLS
+    debug_printf("paging_dealloc returne\n");
+#endif
     return SYS_ERR_OK;
 }
 
@@ -707,9 +823,11 @@ errval_t paging_map_frame_attr(struct paging_state *st, void **buf,
                                size_t bytes, struct capref frame,
                                int flags, void *arg1, void *arg2)
 {
-#if 0   
-    debug_printf("paging_map_frame_attr called\n");
+#if PRINT_CALLS
+    debug_printf("paging_map_frame_attr called for st 0x%08x\n", st);
 #endif
+
+    assert(!capref_is_null(frame));
     bytes = ROUND_UP(bytes, BASE_PAGE_SIZE*ENTRIES_PER_FRAME);
     *((lvaddr_t*)buf) = buddy_alloc(st, st->root, bytes);
     if(*buf == (void*)-1) {
@@ -717,6 +835,9 @@ errval_t paging_map_frame_attr(struct paging_state *st, void **buf,
         exit(-1);
     }
     
+#if PRINT_CALLS
+    debug_printf("paging_map_frame_attr returning\n");
+#endif
     return paging_map_fixed_attr(st, (lvaddr_t)(*buf), frame, bytes, flags);
 }
 
@@ -727,12 +848,22 @@ errval_t paging_map_frame_attr(struct paging_state *st, void **buf,
 errval_t paging_map_fixed_attr(struct paging_state *st, lvaddr_t vaddr,
         struct capref frame, size_t bytes, int flags)
 {
-#if 0
-    debug_printf("paging_map_fixed_attr called\n");
+#if PRINT_CALLS
+    debug_printf("paging_map_fixed_attr called st 0x%08x, bytes %d\n",
+        st, bytes);
 #endif
-    errval_t err = allocate_pt(st, vaddr, frame, 0, bytes, flags, false);
+    
+    struct capref capcopy;
+    slot_alloc(&capcopy);
+    errval_t err = cap_copy(capcopy, frame);
     if (err_is_fail(err)){
-        debug_printf("Could not map fixed attribute: %s", err_getstring(err));
+        err_print_calltrace(err);
+        abort();
+    }
+    
+    err = allocate_pt(st, vaddr, capcopy, 0, bytes, flags, false);
+    if (err_is_fail(err)){
+        debug_printf("Could not map fixed attribute: %s\n", err_getstring(err));
         err_push(err, LIB_ERR_MALLOC_FAIL);
         err_print_calltrace(err);
     }
@@ -769,6 +900,9 @@ errval_t paging_map_fixed_attr(struct paging_state *st, lvaddr_t vaddr,
     //     return err;
     // }
 
+#if PRINT_CALLS
+    debug_printf("paging_map_fixed_attr returned\n");
+#endif
     return err;
 }
 
@@ -780,6 +914,23 @@ errval_t paging_map_fixed_attr(struct paging_state *st, lvaddr_t vaddr,
  */
 errval_t paging_unmap(struct paging_state *st, const void *region)
 {
-    buddy_dealloc(st->root, (lvaddr_t)region);
+#if PRINT_CALLS
+    debug_printf("paging_unmap called\n");
+#endif
+    
+    lvaddr_t addr = (lvaddr_t) region;
+    cslot_t l1_slot = ARM_L1_USER_OFFSET(addr);
+    cslot_t l2_slot = ARM_L2_USER_OFFSET(addr);
+    errval_t err = vnode_unmap(st->l1_cap, st->l2_caps[l1_slot], l2_slot, 1);
+    if (err_is_fail(err)){
+        err_print_calltrace(err);
+        abort();
+    }
+    // size_t return_size = buddy_dealloc(st->root, (lvaddr_t)region);
+    // debug_printf("unmap return_size: %d\n", return_size);
+    
+#if PRINT_CALLS
+    debug_printf("paging_unmap returned\n");
+#endif
     return SYS_ERR_OK;
 }

@@ -112,12 +112,12 @@ errval_t spawn_span_domain(struct spawninfo *si, struct capref vroot,
 /* errval_t spawn_memory(struct spawninfo *si, const char *name, uint8_t core_id, */
 /*                       int argc, char *argv[], lvaddr_t binary, */
 /*                       size_t binary_size); */
-
-errval_t spawn_core_with_kernel(struct spawninfo *si, 
-                                struct bootinfo *bi,
-                                coreid_t coreid,
-                                const char *cmdline,
-                                struct capref kern_cap);
+errval_t spawn_core_load_kernel(struct bootinfo *bi,
+                       coreid_t coreid, 
+                       int hwid, 
+                       const char *cmdline,
+                       struct frame_identity urpc_frame_id,
+                       struct capref kcb);
 __END_DECLS
 
 #endif //SPAWNDOMAIN_H

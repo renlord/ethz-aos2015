@@ -720,25 +720,11 @@ int main(int argc, char *argv[])
         DEBUG_ERR(err, "Failed to init memory server module");
         abort();
     }
-
-    // err = sys_boot_core(1, (lpaddr_t) (MEMORY_OFFSET + );
-    // if (err_is_fail(err)) {
-    //     DEBUG_ERR(err, "failed to boot 2nd core from init");
-    //     abort();
-    // }
-
-    // boot second core
-    struct spawninfo si;
-    err = spawn_core_with_kernel(&si, bi, 1, NULL, cap_kernel);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "fail to boot 2nd core and load kernel\n");
-        abort();
-    }
     
-    int *int_buf = (int *)malloc(1000);
-    for (uint32_t i = 0; i < 1000; i++) {
-        int_buf[i] = 1;
-    }
+    // int *int_buf = (int *)malloc(1000);
+    // for (uint32_t i = 0; i < 1000; i++) {
+    //     int_buf[i] = 1;
+    // }
     debug_printf("Mem stuff done\n");
 
     // TODO (milestone 4): Implement a system to manage the device memory
@@ -746,6 +732,28 @@ int main(int argc, char *argv[])
     // cnode. Additionally, export the functionality of that system to other
     // domains by implementing the rpc call `aos_rpc_get_dev_cap()'.
     debug_printf("Initialized dev memory management\n");
+
+    // boot second core
+    struct capref urpc_frame;
+    size_t retsize;
+    err = frame_alloc(&urpc_frame, MON_URPC_SIZE, &retsize);
+    if (err_is_fail(err) || retsize != MON_URPC_SIZE) {
+        DEBUG_ERR(err, "fail to allocate urpc frame\n");
+        abort();
+    }
+
+    struct frame_identity urpc_frame_id; 
+    err = invoke_frame_identify(urpc_frame, &urpc_frame_id);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "fail to get urpc frame identity\n");
+        abort();
+    }
+
+    err = spawn_core_load_kernel(bi, 1, 1, "", urpc_frame_id, cap_kernel);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "fail to boot 2nd core and load kernel\n");
+        abort();
+    }
 
     // Create our endpoint to self
     err = cap_retype(cap_selfep, cap_dispatcher, ObjType_EndPoint, 0);
