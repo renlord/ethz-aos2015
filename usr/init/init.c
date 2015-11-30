@@ -13,16 +13,6 @@
  */
 
 #include "init.h"
-#include <stdlib.h>
-#include <string.h>
-#include <barrelfish/morecore.h>
-#include <barrelfish/dispatcher_arch.h>
-#include <barrelfish/debug.h>
-#include <barrelfish/lmp_chan.h>
-#include <barrelfish/aos_rpc.h>
-#include <barrelfish/sys_debug.h>
-#include <barrelfish/sys_debug.h>
-#include <omap44xx_map.h>
 
 #define MAX_CLIENTS 50
 // #define FIRSTEP_BUFLEN 20u
@@ -672,19 +662,6 @@ static void register_process(struct spawninfo *si, const char *name)
     temp->next->next = NULL;
 }
 
-// initializes all essential services..
-// void bootstrap(void) 
-// {
-
-// }
-
-// static void temp_core_func(void) 
-// {
-//     debug_printf("hello from core 2\n");
-//     debug_printf("================================\n");
-//     while(true);
-// }
-
 int main(int argc, char *argv[])
 {
     errval_t err;
@@ -733,28 +710,56 @@ int main(int argc, char *argv[])
     // domains by implementing the rpc call `aos_rpc_get_dev_cap()'.
     debug_printf("Initialized dev memory management\n");
 
-    // boot second core
-    struct capref urpc_frame;
-    size_t retsize;
-    err = frame_alloc(&urpc_frame, MON_URPC_SIZE, &retsize);
-    if (err_is_fail(err) || retsize != MON_URPC_SIZE) {
-        DEBUG_ERR(err, "fail to allocate urpc frame\n");
-        abort();
-    }
-
-    struct frame_identity urpc_frame_id; 
-    err = invoke_frame_identify(urpc_frame, &urpc_frame_id);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "fail to get urpc frame identity\n");
-        abort();
-    }
-
     if (my_core_id == 0) {
+        // boot second core
+        struct capref urpc_frame;
+        size_t retsize;
+        err = frame_alloc(&urpc_frame, MON_URPC_SIZE, &retsize);
+        if (err_is_fail(err) || retsize != MON_URPC_SIZE) {
+            DEBUG_ERR(err, "fail to allocate urpc frame\n");
+            abort();
+        }
+
+        lvaddr_t *urpc_addr;
+        err = paging_map_frame_attr(get_current_paging_state(), 
+                                    (void *) &urpc_addr,
+                                    MON_URPC_SIZE, 
+                                    urpc_frame,
+                                    VREGION_FLAGS_READ_WRITE_NOCACHE, 
+                                    NULL, NULL);
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "fail to map urpc frames\n");
+            abort();
+        }
+        debug_printf("mapped ump frame in init\n");
+
+        struct frame_identity urpc_frame_id; 
+        err = invoke_frame_identify(urpc_frame, &urpc_frame_id);
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "fail to get urpc frame identity\n");
+            abort();
+        }
+
         err = spawn_core_load_kernel(bi, 1, 1, "", urpc_frame_id, cap_kernel);
         if (err_is_fail(err)) {
             DEBUG_ERR(err, "fail to boot 2nd core and load kernel\n");
             abort();
         }
+        debug_printf("Started application processor\n");
+    } else {
+        assert(!capref_is_null(cap_urpcframe));
+        lvaddr_t *urpc_addr;
+        err = paging_map_frame_attr(get_current_paging_state(), 
+                                    (void *) &urpc_addr,
+                                    MON_URPC_SIZE, 
+                                    cap_urpcframe,
+                                    VREGION_FLAGS_READ_WRITE_NOCACHE, 
+                                    NULL, NULL);
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "fail to map urpc frames\n");
+            abort();
+        }
+        debug_printf("mapped ump frame in init\n");
     }
 
     // Create our endpoint to self
@@ -849,9 +854,9 @@ int main(int argc, char *argv[])
         if (err_is_fail(err)) {
             DEBUG_ERR(err, "failed to spawn blink\n");
         }
-
         debug_printf("init domain_id: %d\n", disp_get_domain_id());
     } else {
+
         debug_printf("init on core[%d] waiting for further instructions\n", 
             my_core_id);
     }

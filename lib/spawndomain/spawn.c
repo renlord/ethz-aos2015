@@ -1179,11 +1179,6 @@ errval_t spawn_core_load_kernel(struct bootinfo *bi,
         return err;
     }
 
-    // err = spawn_memory_cleanup(spawn_mem_cap);
-    // if (err_is_fail(err)) {
-    //     return err;
-    // }
-
     return SYS_ERR_OK;
 }
 

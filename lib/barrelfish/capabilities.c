@@ -144,6 +144,11 @@ struct capref cap_remep = {
     .slot  = TASKCN_SLOT_REMEP
 };
 
+struct capref cap_urpcframe = {
+    .cnode = TASK_CNODE_INIT,
+    .slot  = TASKCN_SLOT_MON_URPC
+};
+
 static inline bool backoff(int count)
 {
     // very crude exponential backoff based upon core id

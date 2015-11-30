@@ -587,6 +587,7 @@ struct dcb *spawn_bsp_init(const char *name, alloc_phys_func alloc_phys_fn,
     char bootinfochar[16];
     snprintf(bootinfochar, sizeof(bootinfochar), "%u", INIT_BOOTINFO_VBASE);
     char *bname = basename(name);
+
     const char *argv[] = { bname, bootinfochar };
     int argc = 2;
 
@@ -630,8 +631,10 @@ struct dcb *spawn_bsp_init(const char *name, alloc_phys_func alloc_phys_fn,
          * device access on PCI. PCI is not available on the pandaboard so this
          * should not be a problem.
          */
-        struct cte *iocap = caps_locate_slot(CNODE(spawn_state->taskcn), TASKCN_SLOT_IO);
-        errval_t  err = caps_create_new(ObjType_DevFrame, 0x40000000, 30, 30, iocap);
+        struct cte *iocap = caps_locate_slot(CNODE(spawn_state->taskcn), 
+                                             TASKCN_SLOT_IO);
+        errval_t  err = caps_create_new(ObjType_DevFrame, 0x40000000, 30, 30, 
+                                        iocap);
         assert(err_is_ok(err));
     }
 
@@ -771,6 +774,19 @@ void arm_kernel_startup(void)
                                   bsp_alloc_phys,
                                   &init_rootcn, 
                                   &init_st);
+
+        /*
+         * we create a capability to the urpc frame at this stage and store it 
+         * in init's CSpace. We call this slot TASKCN_SLOT_UMPFRAME
+         */
+        struct cte *cap_urpcframe = caps_locate_slot(CNODE(init_st.taskcn), 
+                                                     TASKCN_SLOT_MON_URPC);
+        errval_t err = caps_create_new(ObjType_Frame, 
+                                       core_data->urpc_frame_base, 
+                                       core_data->urpc_frame_bits, 
+                                       core_data->urpc_frame_bits,
+                                       cap_urpcframe);
+        assert(!err_is_fail(err));
 
     	uint32_t irq = gic_get_active_irq();
     	gic_ack_irq(irq);

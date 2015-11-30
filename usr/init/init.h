@@ -16,8 +16,19 @@
 #define INIT_H
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <barrelfish/barrelfish.h>
+#include <barrelfish/morecore.h>
+#include <barrelfish/dispatcher_arch.h>
+#include <barrelfish/debug.h>
+#include <barrelfish/lmp_chan.h>
+#include <barrelfish/aos_rpc.h>
+#include <barrelfish/sys_debug.h>
+#include <barrelfish/sys_debug.h>
+#include <omap44xx_map.h>
 #include <spawndomain/spawndomain.h>
+
 
 extern struct bootinfo *bi;
 
