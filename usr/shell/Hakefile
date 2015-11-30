@@ -10,8 +10,8 @@
 --
 --------------------------------------------------------------------------
 
-[ build application { target = "memeater",
-  		      cFiles = [ "memeater.c" ],
+[ build application { target = "shell",
+  		      cFiles = [ "shell.c" ],
                       flounderDefs = [ "mem" ],
                       architectures = allArchitectures
                     }

@@ -11,7 +11,8 @@ kernel	/armv7/sbin/cpu_omap44xx loglevel=4
 module	/armv7/sbin/cpu_omap44xx
 module	/armv7/sbin/init
 module	/armv7/sbin/blink
-module	/armv7/sbin/memeater
+module	/armv7/sbin/spawnd
+module	/armv7/sbin/shell
 
 # TODO: add different modules here for later milestones
 

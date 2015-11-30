@@ -179,15 +179,11 @@ static void join(char *argv[], char *argv_string, uint32_t argc){
     }
 }
 
-static void parse_cli_cmd(char *str, char **argv, int *args, 
-                            bool *background_run);
-static void parse_cli_cmd(char *str, char **argv, int *args, 
-                            bool *background_run)
+static void parse_cli_cmd(char *str, char **argv, int *args);
+static void parse_cli_cmd(char *str, char **argv, int *argc)
 {
     char *tok; 
     int i;
-
-    assert(background_run != NULL);
 
     const char *delim = " ";
 
@@ -201,8 +197,7 @@ static void parse_cli_cmd(char *str, char **argv, int *args,
         argv[i] = tok;
     }
 
-    *args = i;
-    *background_run = (*argv[i] == '&') ? true : false;
+    *argc = i;
 }
 
 static void cli_demo(void);
@@ -211,18 +206,17 @@ static void cli_demo(void)
     char input_buf[256];
     char *argv[256];
     int argc, i;
-    bool run_background;
 
     memset(input_buf, '\0', 256);
 
     print_line("======== BEGIN BASIC SHELL ==========\r\n");
     while (true) {
         scan_line(input_buf);
-        parse_cli_cmd(input_buf, argv, &argc, &run_background);
+        parse_cli_cmd(input_buf, argv, &argc);
 
         // DEBUGGING
         // debug_printf("arguments:\n");
-        // for (i = 0; i < args; i++) {
+        // for (i = 0; i < argc; i++) {
         //     debug_printf("%s\n", argv[i]);
         // }
         // debug_printf("input buf: >>%s<<\n", input_buf);

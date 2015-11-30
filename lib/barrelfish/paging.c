@@ -830,7 +830,7 @@ errval_t paging_map_frame_attr(struct paging_state *st, void **buf,
     *((lvaddr_t*)buf) = buddy_alloc(st, st->root, bytes);
     if(*buf == (void*)-1) {
         debug_printf("Could not allocate space\n");
-        exit(-1);
+        abort();
     }
     
 #if PRINT_CALLS
@@ -851,9 +851,11 @@ errval_t paging_map_fixed_attr(struct paging_state *st, lvaddr_t vaddr,
         st, bytes);
 #endif
     
+    errval_t err;
+
     struct capref capcopy;
     slot_alloc(&capcopy);
-    errval_t err = cap_copy(capcopy, frame);
+    err = cap_copy(capcopy, frame);
     if (err_is_fail(err)){
         err_print_calltrace(err);
         abort();

@@ -25,16 +25,11 @@
 
 static void clean_aos_rpc_msgbuf(struct aos_rpc *rpc);
 
-
-
-static void spawnd_recv_handler(void *rpc_void);
 static void spawnd_recv_handler(void *rpc_void)
 {
     return;
 }
 
-
-static void init_recv_handler(void *rpc_void);
 static void init_recv_handler(void *rpc_void) 
 {
     struct aos_rpc *rpc = (struct aos_rpc *)rpc_void;
@@ -58,7 +53,7 @@ static void init_recv_handler(void *rpc_void)
     
     uint32_t code = msg.buf.words[0];
     switch(code) {
-        case REQUEST_CHAN:
+        case REGISTER_CHANNEL:
         {
             if (capref_is_null(remote_cap)) {
                 debug_printf("Received endpoint cap was null.\n");
@@ -367,6 +362,7 @@ errval_t aos_rpc_process_spawn(struct aos_rpc *chan, char *name,
     }
     err = lmp_chan_send1(&init_lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
         PROCESS_SPAWN);
+
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "fail to send PROCESS_SPAWN event to init.\n");
         return err;
@@ -503,9 +499,9 @@ errval_t aos_rpc_delete(struct aos_rpc *chan, char *path)
     return SYS_ERR_OK;
 }
 
-
-static errval_t aos_setup_channel(struct aos_rpc *rpc, struct lmp_chan *lc,
-                           struct capref remote_cap, struct event_closure ec)
+// 
+errval_t aos_setup_channel(struct lmp_chan *lc, struct capref remote_cap,
+                           struct event_closure ec)
 {
     // Initialize LMP channel
     lmp_chan_init(lc);
@@ -537,21 +533,6 @@ static errval_t aos_setup_channel(struct aos_rpc *rpc, struct lmp_chan *lc,
         return err;
     }
 
-    // Request dedicated channel
-    err = lmp_chan_send1(lc, LMP_SEND_FLAGS_DEFAULT,
-                         ep_cap, REQUEST_CHAN);
-    if (err_is_fail(err)) {
-        debug_printf("Could not send msg to init: %s.\n",
-            err_getstring(err));
-        err_print_calltrace(err);
-        return err;
-    }
-    
-    // Listen for response from init. When recv_handler returns,
-    // cap for spawnd should be in rpc->return_cap
-    event_dispatch(get_default_waitset());
-    lc->remote_cap = rpc->return_cap;
-    
     return SYS_ERR_OK;
 }
 
@@ -573,7 +554,7 @@ errval_t aos_rpc_init(struct aos_rpc *rpc)
     
     st->rpc = rpc;
     
-    errval_t err = aos_setup_channel(rpc, &rpc->init_lc, cap_initep,
+    errval_t err = aos_setup_channel(&rpc->init_lc, cap_initep,
         MKCLOSURE(init_recv_handler, rpc));
     if (err_is_fail(err)) {
         debug_printf("Could not setup channel for init.\n");
@@ -581,30 +562,57 @@ errval_t aos_rpc_init(struct aos_rpc *rpc)
         return err;
     }
     
-    err = lmp_chan_send1(&rpc->init_lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP,
-                         REQUEST_SPAWND_EP);
+    err = lmp_chan_send1(&rpc->init_lc, LMP_SEND_FLAGS_DEFAULT,
+                         rpc->init_lc.local_cap, REGISTER_CHANNEL);
     if (err_is_fail(err)) {
-        debug_printf("Could not request spawnd endpoint from init.\n");
+        debug_printf("Could not register by init.\n");
         err_print_calltrace(err);
         return err;
     }
     
-    event_dispatch(get_default_waitset());
+
+    // // Listen for response from init. When recv_handler returns,
+    // // cap for spawnd should be in rpc->return_cap
+    // event_dispatch(get_default_waitset());
+    // lc->remote_cap = rpc->return_cap;
+    //
+    // // Request dedicated channel
+    // err = lmp_chan_send1(lc, LMP_SEND_FLAGS_DEFAULT,
+    //                      remote_cap, REGISTER_CHANNEL);
+    // if (err_is_fail(err)) {
+    //     debug_printf("Could not send msg to init: %s.\n",
+    //         err_getstring(err));
+    //     err_print_calltrace(err);
+    //     return err;
+    // }
+
+    void *x = spawnd_recv_handler;
+    x=x;
     
-    struct capref cap_spawndep = rpc->return_cap;
-    
-    err = aos_setup_channel(rpc, &rpc->spawnd_lc, cap_spawndep,
-        MKCLOSURE(spawnd_recv_handler, rpc));
-    if (err_is_fail(err)) {
-        debug_printf("Could not setup channel for spawnd.\n");
-        err_print_calltrace(err);
-        return err;
-    }
+    // err = lmp_chan_send1(&rpc->init_lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP,
+    //                      REQUEST_SPAWND_EP);
+    // if (err_is_fail(err)) {
+    //     debug_printf("Could not request spawnd endpoint from init.\n");
+    //     err_print_calltrace(err);
+    //     return err;
+    // }
+    //
+    // event_dispatch(get_default_waitset());
+
+    // struct capref cap_spawndep = rpc->return_cap;
+    //
+    // err = aos_setup_channel(rpc, &rpc->spawnd_lc, cap_spawndep,
+    //     MKCLOSURE(spawnd_recv_handler, rpc));
+    // if (err_is_fail(err)) {
+    //     debug_printf("Could not setup channel for spawnd.\n");
+    //     err_print_calltrace(err);
+    //     return err;
+    // }
        
     // // Request pid from init
     // // for some reason, could not see that initep is attached to init's dispatcher?
     // err = lmp_chan_send1(&(rpc->init_lc), LMP_SEND_FLAGS_DEFAULT,
-    //                     rpc->init_lc.local_cap, REQUEST_CHAN);
+    //                     rpc->init_lc.local_cap, REGISTER_CHANNEL);
     // if (err_is_fail(err)) {
     //     debug_printf("Could not send msg to init: %s.\n",
     //         err_getstring(err));
@@ -629,7 +637,7 @@ errval_t aos_rpc_init(struct aos_rpc *rpc)
     // // Request pid from init
     // // for some reason, could not see that initep is attached to init's dispatcher?
     // err = lmp_chan_send1(&(rpc->spawnd_lc), LMP_SEND_FLAGS_DEFAULT,
-    //                     rpc->spawnd_lc.local_cap, REQUEST_CHAN);
+    //                     rpc->spawnd_lc.local_cap, REGISTER_CHANNEL);
     // if (err_is_fail(err)) {
     //     debug_printf("Could not send msg to spawnd: %s.\n",
     //         err_getstring(err));
@@ -640,6 +648,32 @@ errval_t aos_rpc_init(struct aos_rpc *rpc)
     return SYS_ERR_OK;
 }
 
+// /**
+//  * \brief registers a custom recv handler for a given userspace application
+//  * all userspace app may not necessarily have the same interfaces nor deal with
+//  * all events dealt by init.
+//  */
+// errval_t aos_rpc_register_recv_handler(struct aos_rpc *rpc, void *recv_handler)
+// {
+//     assert(recv_handler != NULL && rpc != NULL);
+//
+//     rpc->recv_handler = recv_handler;
+//
+//     return SYS_ERR_OK;
+// }
+//
+// /**
+//  * \brief registers a custom send handler for a given userspace application
+//  */
+// errval_t aos_rpc_register_send_handler(struct aos_rpc *rpc, void *send_handler)
+// {
+//     assert(send_handler != NULL && rpc != NULL);
+//
+//     rpc->send_handler = send_handler;
+//
+//     return SYS_ERR_OK;
+// }
+//
 static void clean_aos_rpc_msgbuf(struct aos_rpc *rpc)
 {
     memset(rpc->msg_buf, '\0', AOS_RPC_MSGBUF_LEN);

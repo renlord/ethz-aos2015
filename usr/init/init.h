@@ -18,25 +18,20 @@
 #include <stdio.h>
 #include <barrelfish/barrelfish.h>
 #include <spawndomain/spawndomain.h>
+#include <stdlib.h>
+#include <string.h>
+#include <barrelfish/morecore.h>
+#include <barrelfish/dispatcher_arch.h>
+#include <barrelfish/debug.h>
+#include <barrelfish/lmp_chan.h>
+#include <barrelfish/aos_rpc.h>
+#include <barrelfish/sys_debug.h>
+#include <barrelfish/sys_debug.h>
+#include <omap44xx_map.h>
+
+// #include "../spawnd/spawnd.h"
 
 extern struct bootinfo *bi;
-
-enum ps_status {
-	PS_STATUS_RUNNING,
-	PS_STATUS_ZOMBIE,
-	PS_STATUS_SLEEP
-};
-
-struct ps_entry {
-	domainid_t pid;
-	enum ps_status status;
-	char *argv[MAX_CMDLINE_ARGS];
-	char *argbuf;
-	size_t argbytes;
-	struct capref rootcn_cap, dcb;
-	struct cnoderef rootcn;
-	uint8_t exitcode;
-};
 
 errval_t initialize_ram_alloc(void);
 errval_t initialize_mem_serv(void);
@@ -53,5 +48,6 @@ void recv_handler(void *lc_in);
 void send_handler(void *client_state_in);
 
 void set_uart3_registers(lvaddr_t base);
+errval_t spawn_spawnd(void);
 
 #endif // INIT_H

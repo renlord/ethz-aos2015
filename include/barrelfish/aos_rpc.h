@@ -25,7 +25,8 @@
 #define AOS_RPC_MSGBUF_LEN 256 
 
 enum rpc_code {
-    REQUEST_CHAN,
+    REGISTER_CHANNEL,
+    SPAWND_READY,
     SEND_TEXT,
     REQUEST_FRAME_CAP,
     REQUEST_DEV_CAP,
@@ -36,6 +37,10 @@ enum rpc_code {
     PROCESS_GET_NO_OF_PIDS,
     PROCESS_GET_PID,
     REQUEST_SPAWND_EP,
+    // SPAWND_PROCESS_SPAWN,
+    // SPAWND_GET_NAME,
+    // SPAWND_GET_NO_OF_PIDS,
+    // SPAWND_GET_PID
 };
 
 enum lock_code {
@@ -56,6 +61,8 @@ struct aos_rpc {
     size_t char_count;
     bool wait_event;
     char process_name[20];
+    void (*recv_handler)(void *); // custom recv handler for userspace app.
+    void (*send_handler)(void *);
 }local_rpc;
 
 
@@ -192,6 +199,10 @@ errval_t aos_rpc_create(struct aos_rpc *chan, char *path, int *fd);
  * \arg path the file to delete
  */
 errval_t aos_rpc_delete(struct aos_rpc *chan, char *path);
+
+// TODO document
+errval_t aos_setup_channel(struct lmp_chan *lc, struct capref remote_cap,
+                           struct event_closure ec);
 
 /**
  * \brief Initialize given rpc channel.
