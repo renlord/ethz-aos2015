@@ -141,7 +141,6 @@ struct dcb *spawn_module(struct spawn_state *st, struct cte *rootcn,
     err = caps_create_new(ObjType_CNode, alloc_phys(BASE_PAGE_SIZE),
                         BASE_PAGE_BITS, DEFAULT_CNODE_BITS, rootcn);
     assert(err_is_ok(err));
-
     // Task cnode in root cnode
     st->taskcn = caps_locate_slot(CNODE(rootcn), ROOTCN_SLOT_TASKCN);
     err = caps_create_new(ObjType_CNode, alloc_phys(BASE_PAGE_SIZE),

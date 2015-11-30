@@ -232,7 +232,6 @@ errval_t elf32_load(uint16_t em_machine, elf_allocator_fn allocate_func,
                     genvaddr_t *ret_tlsbase, size_t *ret_tlsinitlen,
                     size_t *ret_tlstotallen)
 {
-    printf("lvaddr base: 0x%08x\n", base);
     struct Elf32_Ehdr *head = (struct Elf32_Ehdr *)base;
     errval_t err;
     int i;

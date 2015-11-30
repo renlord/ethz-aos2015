@@ -749,10 +749,12 @@ int main(int argc, char *argv[])
         abort();
     }
 
-    err = spawn_core_load_kernel(bi, 1, 1, "", urpc_frame_id, cap_kernel);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "fail to boot 2nd core and load kernel\n");
-        abort();
+    if (my_core_id == 0) {
+        err = spawn_core_load_kernel(bi, 1, 1, "", urpc_frame_id, cap_kernel);
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "fail to boot 2nd core and load kernel\n");
+            abort();
+        }
     }
 
     // Create our endpoint to self
@@ -833,21 +835,26 @@ int main(int argc, char *argv[])
 
     // PROCESS SPAWNING CODE 
     // TO BE MOVED TO DEDICATED program afterwards.
-    debug_printf("Spawning memeater...\n");
-    
-    domainid_t memeater_pid;
-    err = spawn("memeater", &memeater_pid);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "failed to spawn memeater\n");
-    }
+    if (my_core_id == 0) {
+        debug_printf("Spawning memeater...\n");
+        
+        domainid_t memeater_pid;
+        err = spawn("memeater", &memeater_pid);
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "failed to spawn memeater\n");
+        }
 
-    domainid_t blink_pid;
-    err = spawn("blink", &blink_pid);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "failed to spawn blink\n");
-    }
+        domainid_t blink_pid;
+        err = spawn("blink", &blink_pid);
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "failed to spawn blink\n");
+        }
 
-    debug_printf("init domain_id: %d\n", disp_get_domain_id());
+        debug_printf("init domain_id: %d\n", disp_get_domain_id());
+    } else {
+        debug_printf("init on core[%d] waiting for further instructions\n", 
+            my_core_id);
+    }
 
     debug_printf("Entering dispatch loop\n");
     while(true) {

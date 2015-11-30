@@ -91,7 +91,6 @@ extern size_t ram_size;
 
 static lpaddr_t core_local_alloc_start = PHYS_MEMORY_START;
 static lpaddr_t core_local_alloc_end = PHYS_MEMORY_START;
-
 /**
  * \brief Linear physical memory allocator.
  *
@@ -121,7 +120,6 @@ static lpaddr_t bsp_alloc_phys_aligned(size_t size, size_t align)
     core_local_alloc_start = round_up(core_local_alloc_start, align);
     return bsp_alloc_phys(size);
 }
-
 
 /**
  * Map frames into init process address space. Init has a contiguous set of
@@ -515,13 +513,13 @@ static struct dcb *spawn_init_common(const char *name,
                                      struct spawn_state *spawn_state)
 {
     debug(SUBSYS_STARTUP, "spawn_init_common %s\n", name);
-
+    //printk(LOG_NOTE, "hello 0\n");
     lvaddr_t paramaddr;
     struct dcb *init_dcb = spawn_module(spawn_state, rootcn, name,
                                         argc, argv,
                                         bootinfo_phys, INIT_ARGS_VBASE,
                                         alloc_phys_fn, &paramaddr);
-
+    printk(LOG_NOTE, "init dcb spawned: 0x%08x\n", init_dcb);
     debug(SUBSYS_STARTUP, "after spawn_module\n");
     init_page_tables(spawn_state);
 
@@ -532,7 +530,6 @@ static struct dcb *spawn_init_common(const char *name,
 
     spawn_init_map(init_l2, INIT_VBASE, INIT_ARGS_VBASE,
                    spawn_state->args_page, ARGS_SIZE, INIT_PERM_RW);
-
 
     // Map dispatcher
     spawn_init_map(init_l2, INIT_VBASE, INIT_DISPATCHER_VBASE,
@@ -650,7 +647,6 @@ struct dcb *spawn_bsp_init(const char *name, alloc_phys_func alloc_phys_fn,
     return init_dcb;
 }
 
-
 void arm_kernel_startup(void)
 {
     printk(LOG_NOTE, "arm_kernel_startup entered \n");
@@ -661,15 +657,22 @@ void arm_kernel_startup(void)
     struct arm_core_data *core_data
         = (void *)((lvaddr_t)&kernel_first_byte - BASE_PAGE_SIZE);
 
+    printk(LOG_NOTE, "kernel first byte: 0x%08x\n", &kernel_first_byte);
+    printk(LOG_NOTE, "kernel final byte: 0x%08x\n", &kernel_final_byte);
+
     struct dcb *init_dcb;
+
+    core_local_alloc_start = glbl_core_data->start_free_ram;
+    core_local_alloc_end = core_local_alloc_start + (ram_size / 2);
+    glbl_core_data->start_free_ram = core_local_alloc_end;
 
     if(hal_cpu_is_bsp())
     {
         debug(SUBSYS_STARTUP, "Doing BSP related bootup \n");
 
     	/* Initialize the location to allocate phys memory from */
-        core_local_alloc_start = glbl_core_data->start_free_ram;
-        core_local_alloc_end = PHYS_MEMORY_START + ram_size;
+        // core_local_alloc_start = glbl_core_data->start_free_ram;
+        // core_local_alloc_end = core_local_alloc_start + (ram_size / 2);
 
 #if MILESTONE == 3
         // Bring up memory consuming process
@@ -760,11 +763,25 @@ void arm_kernel_startup(void)
     	my_core_id = core_data->dst_core_id;
 
         // TODO (multicore milestone): setup init domain for core 1
+        struct spawn_state init_st;
+        memset(&init_st, 0, sizeof(struct spawn_state));
+        static struct cte init_rootcn; // gets put into mdb
+
+        init_dcb = spawn_bsp_init(BSP_INIT_MODULE_NAME, 
+                                  bsp_alloc_phys,
+                                  &init_rootcn, 
+                                  &init_st);
 
     	uint32_t irq = gic_get_active_irq();
     	gic_ack_irq(irq);
     }
 
+    printk(LOG_NOTE, "==================\n");
+    printk(LOG_NOTE, "core_local_alloc_start: 0x%08x\n", core_local_alloc_start);
+    printk(LOG_NOTE, "core_local_alloc_end: 0x%08x\n", core_local_alloc_end);
+    printk(LOG_NOTE, "Kernel Memory Size: 0x%08x\n", core_local_alloc_end - 
+            core_local_alloc_start);
+    printk(LOG_NOTE, "==================\n");
     // Should not return
     printk(LOG_NOTE, "Calling dispatch from arm_kernel_startup, start address is=%"
             PRIxLVADDR"\n",

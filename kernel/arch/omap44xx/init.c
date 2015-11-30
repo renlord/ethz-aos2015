@@ -558,9 +558,9 @@ void arch_init(void *pointer)
     	struct arm_core_data *core_data =
             (struct arm_core_data*)((lvaddr_t)&kernel_first_byte
                             - BASE_PAGE_SIZE);
-    	glbl_core_data = core_data;
-    	glbl_core_data->cmdline = (lpaddr_t)&core_data->kernel_cmdline;
-        glbl_core_data->multiboot_flags = 0; // clear mb flags
+    	// glbl_core_data = core_data;
+    	// glbl_core_data->cmdline = (lpaddr_t)&core_data->kernel_cmdline;
+     //    glbl_core_data->multiboot_flags = 0; // clear mb flags
     	glbl_core_data->start_free_ram = ROUND_UP(max(glbl_core_data->start_free_ram,
                     (uintptr_t)&kernel_final_byte), BASE_PAGE_SIZE);
 

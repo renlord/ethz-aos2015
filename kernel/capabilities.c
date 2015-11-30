@@ -721,13 +721,11 @@ errval_t caps_create_new(enum objtype type, lpaddr_t addr, size_t bits,
 
     size_t numobjs = caps_numobjs(type, bits, objbits);
     assert(numobjs > 0);
-
     /* Create the new capabilities */
     errval_t err = caps_create(type, addr, bits, objbits, numobjs, caps);
     if (err_is_fail(err)) {
         return err;
     }
-
     // Handle the mapping database
     set_init_mapping(caps, numobjs);
     return SYS_ERR_OK;

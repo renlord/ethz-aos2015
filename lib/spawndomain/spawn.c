@@ -895,47 +895,47 @@ errval_t spawn_span_domain(struct spawninfo *si, struct capref vroot,
     return SYS_ERR_OK;
 }
 
-// from barrelfish tree
-static errval_t
-spawn_memory_prepare(size_t size, struct capref *cap_ret,
-                     struct frame_identity *frameid)
-{
-    errval_t err;
-    struct capref cap;
-
-    err = frame_alloc(&cap, size, NULL);
-    if (err_is_fail(err)) {
-        return err_push(err, LIB_ERR_FRAME_ALLOC);
-    }
-
-    // // Mark memory as remote
-    // err = cap_mark_remote(cap);
-    // if (err_is_fail(err)) {
-    //     return err;
-    // }
-
-    err = invoke_frame_identify(cap, frameid);
-    if (err_is_fail(err)) {
-        USER_PANIC_ERR(err, "frame_identify failed");
-    }
-
-    *cap_ret = cap;
-    return SYS_ERR_OK;
-}
-
 // // from barrelfish tree
-static errval_t
-spawn_memory_cleanup(struct capref cap)
-{
+// static errval_t
+// spawn_memory_prepare(size_t size, struct capref *cap_ret,
+//                      struct frame_identity *frameid)
+// {
+//     errval_t err;
+//     struct capref cap;
 
-    errval_t err;
-    err = cap_destroy(cap);
-    if (err_is_fail(err)) {
-        USER_PANIC_ERR(err, "cap_destroy failed");
-    }
+//     err = frame_alloc(&cap, size, NULL);
+//     if (err_is_fail(err)) {
+//         return err_push(err, LIB_ERR_FRAME_ALLOC);
+//     }
 
-    return SYS_ERR_OK;
-}
+//     // // Mark memory as remote
+//     // err = cap_mark_remote(cap);
+//     // if (err_is_fail(err)) {
+//     //     return err;
+//     // }
+
+//     err = invoke_frame_identify(cap, frameid);
+//     if (err_is_fail(err)) {
+//         USER_PANIC_ERR(err, "frame_identify failed");
+//     }
+
+//     *cap_ret = cap;
+//     return SYS_ERR_OK;
+// }
+
+// // // from barrelfish tree
+// static errval_t
+// spawn_memory_cleanup(struct capref cap)
+// {
+
+//     errval_t err;
+//     err = cap_destroy(cap);
+//     if (err_is_fail(err)) {
+//         USER_PANIC_ERR(err, "cap_destroy failed");
+//     }
+
+//     return SYS_ERR_OK;
+// }
 
 static errval_t
 cpu_memory_cleanup(struct capref cap, void *buf)
@@ -1114,17 +1114,17 @@ errval_t spawn_core_load_kernel(struct bootinfo *bi,
         DEBUG_ERR(err, "cpu_memory_prepare");
         return err;
     }
-    
-    /* Chunk of memory to load other stuff on the app core */
-    struct capref spawn_mem_cap;
-    struct frame_identity spawn_mem_frameid;
-    err = spawn_memory_prepare(ARM_CORE_DATA_PAGES * BASE_PAGE_SIZE,
-                               &spawn_mem_cap,
-                               &spawn_mem_frameid);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "spawn_memory_prepare");
-        return err;
-    }
+
+    // /* Chunk of memory to load other stuff on the app core */
+    // struct capref spawn_mem_cap;
+    // struct frame_identity spawn_mem_frameid;
+    // err = spawn_memory_prepare(ARM_CORE_DATA_PAGES * BASE_PAGE_SIZE,
+    //                            &spawn_mem_cap,
+    //                            &spawn_mem_frameid);
+    // if (err_is_fail(err)) {
+    //     DEBUG_ERR(err, "spawn_memory_prepare");
+    //     return err;
+    // }
 
     /* Setup the core_data struct in the new kernel */
     struct arm_core_data *core_data = (struct arm_core_data *)cpu_mem.buf;
@@ -1140,8 +1140,8 @@ errval_t spawn_core_load_kernel(struct bootinfo *bi,
     core_data->urpc_frame_bits     = urpc_frame_id.bits;
     //core_data->monitor_binary      = monitor_blob.paddr;
     //core_data->monitor_binary_size = monitor_blob.size;
-    core_data->memory_base_start   = spawn_mem_frameid.base;
-    core_data->memory_bits         = spawn_mem_frameid.bits;
+    //core_data->memory_base_start   = spawn_mem_frameid.base;
+    //core_data->memory_bits         = spawn_mem_frameid.bits;
     core_data->src_core_id         = disp_get_core_id();
     //core_data->src_arch_id         = my_arch_id;
     core_data->dst_core_id         = coreid;
@@ -1166,6 +1166,8 @@ errval_t spawn_core_load_kernel(struct bootinfo *bi,
 
     /* Invoke kernel capability to boot new core */
     // XXX: Confusion address translation about l/gen/addr
+    debug_printf("kernel frame starts at: 0x%08x\n", cpu_mem.frameid.base);
+    debug_printf("kernel for 2nd core addr: 0x%08x\n", reloc_entry);
     err = invoke_monitor_spawn_core(hwid, CPU_ARM, (forvaddr_t)reloc_entry, 
                                     kcb);
     if (err_is_fail(err)) {
@@ -1177,10 +1179,10 @@ errval_t spawn_core_load_kernel(struct bootinfo *bi,
         return err;
     }
 
-    err = spawn_memory_cleanup(spawn_mem_cap);
-    if (err_is_fail(err)) {
-        return err;
-    }
+    // err = spawn_memory_cleanup(spawn_mem_cap);
+    // if (err_is_fail(err)) {
+    //     return err;
+    // }
 
     return SYS_ERR_OK;
 }
