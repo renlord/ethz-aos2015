@@ -79,6 +79,12 @@ static void run_memtest(char *input_argv)
     printf("run_memtest completed...\r\n");
 }
 
+static void oncore(char *input_argv) 
+{   
+    
+    printf("oncore excecution complete...\r\n");
+}
+
 int main(int argc, char *argv[])
 {
     char input_buf[256];
@@ -110,7 +116,10 @@ int main(int argc, char *argv[])
         } else if (strcmp(cmd, "oncore") == 0) {
             // eg. oncore 1 [USR_APP]
             // eg. oncore 2 [USR_APP]
-            
+            // err = aos_rpc_process_spawn();
+            // if (err_is_fail(err)) {
+
+            // }
         } else if (strcmp(cmd, "ps") == 0) {
             printf("`ps` command runned...\r\n");
         } else if (strcmp(cmd, "list") == 0) {
