@@ -10,11 +10,11 @@
 static void shell_input(char *buf, size_t len) 
 {
     int count = 0;
-    char c;
+    int c;
 
     printf("$ ");
     while (count < len) {
-        scanf("%c", &c);
+        c = getchar();
         if (count > 0) {
             if (c == DELETE) {
                 c = BACKSPACE;
@@ -22,20 +22,20 @@ static void shell_input(char *buf, size_t len)
 
             if (c == BACKSPACE) {
                 count--;
-                printf("%c%c", ' ', BACKSPACE);
+                printf("%c %c", BACKSPACE, BACKSPACE);
             }
         }
 
-        if (c == RETURN) {
+        if (c == RETURN && count > 0) {
             printf("\r\n");
             break;
         }
 
         if (c > 31 && c < 127) {
-            printf("%c", c);
-            memcpy(&buf[count], &c, 1);
-            count++;
+            putchar(c);
+            memcpy(&buf[count++], &c, 1);
         }
+        //debug_printf("%d", c);
     }
 }
 
@@ -60,7 +60,7 @@ static void get_argv(char *str, char **argv, int *args)
 
 static void echo(char *rbuf)
 {
-    printf(rbuf);
+    printf("%s\r\n", rbuf);
 }
 
 static void run_memtest(char *input_argv) 
@@ -89,7 +89,9 @@ int main(int argc, char *argv[])
 
     while (true) {
         shell_input(input_buf, 256);
+        //printf("DEBUG: %s\r\n", input_buf);
         input_argv = headstr(input_buf, cmd, ' ');
+        //printf("DEBUG CMD: %s\r\n", cmd);
 
         if (is_user_app(cmd)) {
             // execute spawn user application and provide arguments.
@@ -102,14 +104,15 @@ int main(int argc, char *argv[])
         } else if (strcmp(cmd, "exit") == 0) {
             printf("exiting shell... goodbye\r\n");
             break;
-
         } else if (strcmp(cmd, "run_memtest") == 0) {
             // forks a thread and runs a memory test.
             run_memtest(input_argv);
         } else if (strcmp(cmd, "oncore") == 0) {
             // eg. oncore 1 [USR_APP]
             // eg. oncore 2 [USR_APP]
-
+            
+        } else if (strcmp(cmd, "ps") == 0) {
+            printf("`ps` command runned...\r\n");
         } else if (strcmp(cmd, "list") == 0) {
             list_app();
         } else {
@@ -117,6 +120,7 @@ int main(int argc, char *argv[])
         }
 
         memset(input_buf, '\0', 256);
+        memset(cmd, '\0', 256);
     }
     return 0;
 }

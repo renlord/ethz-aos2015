@@ -76,10 +76,9 @@ static void libc_assert(const char *expression, const char *file,
     sys_print(buf, len < sizeof(buf) ? len : sizeof(buf));
 }
 
-static void print_line(const char *str) 
+static void print_line(const char *str, size_t len) 
 {
-    size_t slen = strlen(str);
-    for (size_t i = 0; i < slen; i++) {
+    for (size_t i = 0; i < len; i++) {
         errval_t err = aos_rpc_serial_putchar(&local_rpc, str[i]);
         if (err_is_fail(err)) {
             debug_printf("userland printf fail! %s\n", err_getstring(err));
@@ -92,28 +91,33 @@ static void print_line(const char *str)
 static size_t syscall_terminal_write(const char *buf, size_t len)
 {
     if (len) {
-        print_line(buf);
+        print_line(buf, len);
     }
     return 0;
 }
 
-static void scan_line(char *buf, size_t len) 
-{   
-    for (int i = 0; i < len; i++, buf++) {
-        errval_t err = aos_rpc_serial_getchar(&local_rpc, buf);
-        if (err_is_fail(err)) {
-            debug_printf("userland scan_line fail! %s\n", err_getstring(err));
-            err_print_calltrace(err);
-            break;
-        }
-        buf++;
-    }
-}
+// static void scan_line(char *buf, size_t len) 
+// {   
+//     for (int i = 0; i < len; i++, buf++) {
+//         errval_t err = aos_rpc_serial_getchar(&local_rpc, buf);
+//         if (err_is_fail(err)) {
+//             debug_printf("userland scan_line fail! %s\n", err_getstring(err));
+//             err_print_calltrace(err);
+//             break;
+//         }
+//         buf++;
+//     }
+// }
 
 
 static size_t dummy_terminal_read(char *buf, size_t len)
 {
-    scan_line(buf, len);
+    errval_t err = aos_rpc_serial_getchar(&local_rpc, buf);
+    if (err_is_fail(err)) {
+        debug_printf("userland scan_line fail! %s\n", err_getstring(err));
+        err_print_calltrace(err);
+        //break;
+    }
     return len;
 }
 

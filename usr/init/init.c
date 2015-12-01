@@ -806,11 +806,11 @@ int main(int argc, char *argv[])
             DEBUG_ERR(err, "failed to spawn memeater\n");
         }
 
-        domainid_t blink_pid;
-        err = spawn("blink", &blink_pid);
-        if (err_is_fail(err)) {
-            DEBUG_ERR(err, "failed to spawn blink\n");
-        }
+        // domainid_t blink_pid;
+        // err = spawn("blink", &blink_pid);
+        // if (err_is_fail(err)) {
+        //     DEBUG_ERR(err, "failed to spawn blink\n");
+        // }
         debug_printf("init domain_id: %d\n", disp_get_domain_id());
     } else {
 

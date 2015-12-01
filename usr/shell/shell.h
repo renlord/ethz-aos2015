@@ -61,13 +61,21 @@ static inline char *headstr(char *str, char *head, int delim)
     assert(head != NULL);
     int len = strlen(str);
     int i;
-    for (i = 0; i < len; i++, str++) {
-        if (*str == delim)
+    char *buf = str;
+
+    for (i = 0; i < len; i++, buf++) {
+        if (*buf == delim) {
             break;
-        head[i] = str[i];
+        }
     }
-    head[i] = '\0';
-    return str;
+
+    if (i == (len - 1)) 
+        return str;
+
+    memcpy(head, str, i);
+    head[i+1] = '\0';
+
+    return buf+1;
 }
 
 static void **allocate_array(size_t chump_size, uint32_t array_size)
