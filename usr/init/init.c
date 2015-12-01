@@ -34,18 +34,12 @@ static coreid_t my_core_id;
 static struct client_state *fst_client;
 static struct process *fst_process;
     
-static volatile uint32_t *uart3_thr = NULL;
-static volatile uint32_t *uart3_rhr = NULL;
-static volatile uint32_t *uart3_fcr = NULL;
-static volatile uint32_t *uart3_lsr = NULL;
-
 static errval_t spawn(const char *name, domainid_t *pid);
 static errval_t get_all_pids(struct lmp_chan *lc);
 static const char *get_pid_name(domainid_t pid);
 static size_t get_pids_count(void);
 static errval_t reply_string(struct lmp_chan *lc, const char *string);
 static void register_process(struct spawninfo *si, const char *name);
-
 
 struct client_state {
     struct client_state *next;
@@ -75,25 +69,6 @@ struct serial_read_lock {
 
 //static struct serial_write_lock write_lock;
 //static struct serial_read_lock read_lock;
-
-errval_t serial_put_char(const char *c) 
-{
-    //debug_printf("serial put char ----> %c\n\n", *c);
-    assert(uart3_lsr && uart3_thr);
-    while(*uart3_lsr == 0x20);
-    *uart3_thr = *c;
-
-    return SYS_ERR_OK;
-}
-
-errval_t serial_get_char(char *c) 
-{
-    *uart3_fcr &= ~1; // write 0 to bit 0
-    *uart3_rhr = 0;
-    while((*uart3_lsr & 1) == 0);
-    *c = (char)*uart3_rhr;
-    return SYS_ERR_OK;
-}
 
 void send_handler(void *client_state_in)
 {
@@ -485,46 +460,6 @@ void recv_handler(void *lc_in)
     }    
 }
 
-void set_uart3_registers(lvaddr_t base)
-{
-    uart3_thr = (uint32_t *)((uint32_t)base + 0x0000);
-    uart3_rhr = (uint32_t *)((uint32_t)base + 0x0000);
-    uart3_fcr = (uint32_t *)((uint32_t)base + 0x0008);
-    uart3_lsr = (uint32_t *)((uint32_t)base + 0x0014);
-}
-
-void my_print(const char *buf)
-{
-    assert(uart3_lsr && uart3_thr);
-    for (uint32_t i = 0; i < strlen(buf); i++){
-        while(*uart3_lsr == 0x20);
-        // FIXME why not this? --> while((*uart3_lsr & 0x20) != 0); 
-        *uart3_thr = buf[i];
-    }
-}
-
-void my_read(void)
-{
-    char buf[256];
-    memset(buf, '\0', 256);
-
-    size_t i = 0;
-
-    while (true) {
-        *uart3_fcr &= ~1; // write 0 to bit 0
-        // *uart3_fcr |= 2; // write 1 to bit 1
-        *((uint8_t *)uart3_rhr) = 0;
-        while ((*uart3_lsr & 1) == 0);
-        my_print((char *)uart3_rhr);
-        memcpy(&buf[i++], (char *) uart3_rhr, 1);
-        if (*uart3_rhr == 13) { // ENTER keystroke.
-            debug_printf("cur buf: %s\n", buf);
-            printf("\n");
-            i = 0;
-        }
-    }
-}
-
 static errval_t spawn(const char *name, domainid_t *pid)
 {
     // concat name with path
@@ -662,6 +597,8 @@ static void register_process(struct spawninfo *si, const char *name)
     temp->next->next = NULL;
 }
 
+
+
 int main(int argc, char *argv[])
 {
     errval_t err;
@@ -673,9 +610,9 @@ int main(int argc, char *argv[])
 
     debug_printf("init: invoked as:");
     for (int i = 0; i < argc; i++) {
-       printf(" %s", argv[i]);
+       debug_printf(" %s", argv[i]);
     }
-    printf("\n");
+    debug_printf("\n");
 
     debug_printf("FIRSTEP_OFFSET should be %zu + %zu\n",
             get_dispatcher_size(), offsetof(struct lmp_endpoint, k));
@@ -714,15 +651,16 @@ int main(int argc, char *argv[])
         // boot second core
         struct capref urpc_frame;
         size_t retsize;
+
         err = frame_alloc(&urpc_frame, MON_URPC_SIZE, &retsize);
         if (err_is_fail(err) || retsize != MON_URPC_SIZE) {
-            DEBUG_ERR(err, "fail to allocate urpc frame\n");
+            DEBUG_ERR(err, "fail to allocate & create urpc frame\n");
             abort();
         }
 
-        lvaddr_t *urpc_addr;
+        char *buf;
         err = paging_map_frame_attr(get_current_paging_state(), 
-                                    (void *) &urpc_addr,
+                                    (void **) &buf,
                                     MON_URPC_SIZE, 
                                     urpc_frame,
                                     VREGION_FLAGS_READ_WRITE_NOCACHE, 
@@ -731,7 +669,14 @@ int main(int argc, char *argv[])
             DEBUG_ERR(err, "fail to map urpc frames\n");
             abort();
         }
-        debug_printf("mapped ump frame in init\n");
+#ifdef INIT_COMM_TEST
+        // TESTING COMMUNICATION
+        debug_printf("mapped ump frame in init. addr: 0x%08x\n", buf);
+        memset((void *) buf, 0, MON_URPC_SIZE);
+        const char *test_str = "hello";
+        strncpy((char *) buf, test_str, 5);
+        debug_printf("TEST STRING: %s\n", buf);
+#endif
 
         struct frame_identity urpc_frame_id; 
         err = invoke_frame_identify(urpc_frame, &urpc_frame_id);
@@ -739,6 +684,7 @@ int main(int argc, char *argv[])
             DEBUG_ERR(err, "fail to get urpc frame identity\n");
             abort();
         }
+        debug_printf("URPC Physical Addr: 0x%08x\n", urpc_frame_id.base);
 
         err = spawn_core_load_kernel(bi, 1, 1, "", urpc_frame_id, cap_kernel);
         if (err_is_fail(err)) {
@@ -748,9 +694,9 @@ int main(int argc, char *argv[])
         debug_printf("Started application processor\n");
     } else {
         assert(!capref_is_null(cap_urpcframe));
-        lvaddr_t *urpc_addr;
+        char *buf;
         err = paging_map_frame_attr(get_current_paging_state(), 
-                                    (void *) &urpc_addr,
+                                    (void **) &buf,
                                     MON_URPC_SIZE, 
                                     cap_urpcframe,
                                     VREGION_FLAGS_READ_WRITE_NOCACHE, 
@@ -759,7 +705,19 @@ int main(int argc, char *argv[])
             DEBUG_ERR(err, "fail to map urpc frames\n");
             abort();
         }
+
+#ifdef INIT_COMM_TEST
+        struct frame_identity urpc_frame_id; 
+        err = invoke_frame_identify(cap_urpcframe, &urpc_frame_id);
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "fail to get urpc frame identity\n");
+            abort();
+        }
+        // TESTING COMMUNICATION
+        debug_printf("URPC Physical Addr: 0x%08x\n", urpc_frame_id.base);
+        debug_printf("we got the test string: %s\n", buf);
         debug_printf("mapped ump frame in init\n");
+#endif
     }
 
     // Create our endpoint to self
@@ -841,10 +799,9 @@ int main(int argc, char *argv[])
     // PROCESS SPAWNING CODE 
     // TO BE MOVED TO DEDICATED program afterwards.
     if (my_core_id == 0) {
-        debug_printf("Spawning memeater...\n");
-        
-        domainid_t memeater_pid;
-        err = spawn("memeater", &memeater_pid);
+        debug_printf("Spawning shell...\n");
+        domainid_t shell_pid;
+        err = spawn("shell", &shell_pid);
         if (err_is_fail(err)) {
             DEBUG_ERR(err, "failed to spawn memeater\n");
         }

@@ -829,7 +829,7 @@ errval_t paging_map_frame_attr(struct paging_state *st, void **buf,
 
     assert(!capref_is_null(frame));
     bytes = ROUND_UP(bytes, BASE_PAGE_SIZE*ENTRIES_PER_FRAME);
-    *((lvaddr_t*)buf) = buddy_alloc(st, st->root, bytes);
+    *((lvaddr_t *) buf) = buddy_alloc(st, st->root, bytes);
     if(*buf == (void*)-1) {
         debug_printf("Could not allocate space\n");
         exit(-1);

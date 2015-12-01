@@ -972,8 +972,8 @@ static int bootstrap_thread(struct spawn_domain_params *params)
 {
     errval_t err;
 
-    debug_printf("bootstrap_thread, st: %s\n", get_current_paging_state());
-    debug_printf("params[0]: %d\n", (int)params->argc);
+    //debug_printf("bootstrap_thread, st: %s\n", get_current_paging_state());
+    //debug_printf("params[0]: %d\n", (int)params->argc);
     // Set libc function pointers
     barrelfish_libc_glue_init();
 

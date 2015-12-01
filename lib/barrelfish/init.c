@@ -23,6 +23,7 @@
 #include <barrelfish/monitor_client.h>
 #include <barrelfish/nameservice_client.h>
 #include <barrelfish/paging.h>
+#include <barrelfish/aos_rpc.h>
 #include <barrelfish_kpi/domain_params.h>
 #include <if/monitor_defs.h>
 #include <trace/trace.h>
@@ -75,17 +76,44 @@ static void libc_assert(const char *expression, const char *file,
     sys_print(buf, len < sizeof(buf) ? len : sizeof(buf));
 }
 
+static void print_line(const char *str) 
+{
+    size_t slen = strlen(str);
+    for (size_t i = 0; i < slen; i++) {
+        errval_t err = aos_rpc_serial_putchar(&local_rpc, str[i]);
+        if (err_is_fail(err)) {
+            debug_printf("userland printf fail! %s\n", err_getstring(err));
+            err_print_calltrace(err);
+            break;
+        }   
+    }
+}
+
 static size_t syscall_terminal_write(const char *buf, size_t len)
 {
     if (len) {
-        return sys_print(buf, len);
+        print_line(buf);
     }
     return 0;
 }
 
+static void scan_line(char *buf, size_t len) 
+{   
+    for (int i = 0; i < len; i++, buf++) {
+        errval_t err = aos_rpc_serial_getchar(&local_rpc, buf);
+        if (err_is_fail(err)) {
+            debug_printf("userland scan_line fail! %s\n", err_getstring(err));
+            err_print_calltrace(err);
+            break;
+        }
+        buf++;
+    }
+}
+
+
 static size_t dummy_terminal_read(char *buf, size_t len)
 {
-    debug_printf("terminal read NYI! returning %d characters read\n", len);
+    scan_line(buf, len);
     return len;
 }
 

@@ -458,6 +458,8 @@ PANDABOARD_MODULES=\
 	armv7/sbin/cpu_omap44xx \
 	armv7/sbin/init \
 	armv7/sbin/blink \
+	armv7/sbin/shell \
+	armv7/sbin/hello \
 	armv7/sbin/memeater
 
 menu.lst.pandaboard: $(SRCDIR)/hake/menu.lst.pandaboard

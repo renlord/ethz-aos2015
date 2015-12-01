@@ -55,7 +55,6 @@ struct aos_rpc {
     char process_name[20];
 }local_rpc;
 
-
 /**
  * \brief send a string over the given channel
  */

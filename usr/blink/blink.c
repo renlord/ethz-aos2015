@@ -66,7 +66,7 @@ static void set_gpio1_registers(lvaddr_t base)
 
 int main(int argc, char *argv[])
 {
-    debug_printf("%s, pid: %u\n", disp_name(), disp_get_domain_id());
+    printf("%s, pid: %u\n", disp_name(), disp_get_domain_id());
     
     // while(true){
     //     if(i++ % 30000000 == 0){
@@ -79,7 +79,7 @@ int main(int argc, char *argv[])
     // int32_t no_of_blinks = (argc > 1) ? atoi(argv[1]) : 5;
     delayus_t blink_rate = ((argc > 2) ? atoi(argv[2]) : 1) * 10000; 
 
-    debug_printf("blink_rate set to: %u\n", blink_rate);
+    printf("blink_rate set to: %u\n", blink_rate);
     
     errval_t err;
     struct capref retcap;
@@ -91,7 +91,7 @@ int main(int argc, char *argv[])
         err_print_calltrace(err);
         abort();
     }
-    debug_printf("dev cap received, dev mapped. OK\n");
+    printf("dev cap received, dev mapped. OK\n");
     
     size_t offset = GPIO1_BASE - 0x40000000;
     lvaddr_t uart_addr = (1UL << 28)*3;
@@ -100,7 +100,7 @@ int main(int argc, char *argv[])
                             VREGION_FLAGS_READ_WRITE_NOCACHE);
                             
     set_gpio1_registers(uart_addr);
-    debug_printf("user device registers set. OK\n");
+    printf("user device registers set. OK\n");
 
     err = periodic_event_create(&pe, get_default_waitset(), blink_rate,  
                                     MKCLOSURE((void *) blink_led, NULL));

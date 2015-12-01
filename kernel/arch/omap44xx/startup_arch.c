@@ -781,7 +781,8 @@ void arm_kernel_startup(void)
          */
         struct cte *cap_urpcframe = caps_locate_slot(CNODE(init_st.taskcn), 
                                                      TASKCN_SLOT_MON_URPC);
-        errval_t err = caps_create_new(ObjType_Frame, 
+        printk(LOG_NOTE, "URPC FRAME BASE: 0x%08x\n", core_data->urpc_frame_base);
+        errval_t err = caps_create_new(ObjType_DevFrame, 
                                        core_data->urpc_frame_base, 
                                        core_data->urpc_frame_bits, 
                                        core_data->urpc_frame_bits,
