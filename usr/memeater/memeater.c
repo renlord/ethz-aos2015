@@ -10,7 +10,7 @@
 #include <barrelfish/paging.h>
 #include <omap44xx_map.h>
 
-#define SMALL_CHUMP_ARRAY_SIZE (1UL << 10)
+#define SMALL_CHUMP_ARRAY_SIZE (1UL << 6)
 #define SMALL_CHUMP_SIZE (1UL << 2)
 
 #define MEDIUM_CHUMP_ARRAY_SIZE (1UL << 10)
@@ -73,40 +73,40 @@ static void perform_array_test(size_t chump_size, uint32_t array_size)
 {
     size_t free_s, alloc_s, max_s;
             
-    printf("Creating array...\n");
+    printf("Creating array...\r\n");
     void **array = allocate_array(chump_size, array_size);
-    printf("Array created with start addr 0x%08x.\n", array);
+    printf("Array created with start addr 0x%08x.\r\n", array);
     
     debug_get_free_space(&free_s, &alloc_s, &max_s);
-    printf("Free space: %d MB, allocated space: %d MB, max blob: %d MB\n",
+    printf("Free space: %d MB, allocated space: %d MB, max blob: %d MB\r\n",
         (free_s >> 20), (alloc_s >> 20), (max_s >> 20));
     
-    printf("Checking array...\n");
+    printf("Checking array...\r\n");
     check_array(array, array_size);
-    debug_printf("Array checked.\n");
+    printf("Array checked.\r\n");
     
-    debug_printf("Freeing array...\n");
+    printf("Freeing array...\r\n");
     free_array(array, array_size);
-    debug_printf("Array freed.\n");
+    printf("Array freed.\r\n");
     
     debug_get_free_space(&free_s, &alloc_s, &max_s);
-    debug_printf("Free space: %d MB, allocated space: %d MB, max blob: %d MB\n",
+    printf("Free space: %d MB, allocated space: %d MB, max blob: %d MB\r\n",
         (free_s >> 20), (alloc_s >> 20), (max_s >> 20));
 }
 
 int main(int argc, char *argv[])
 {
-    debug_printf("Performing small chump test...\n");
+    printf("Performing small chump test...\r\n");
     perform_array_test(SMALL_CHUMP_SIZE, SMALL_CHUMP_ARRAY_SIZE);
-    debug_printf("Done\n\n");
+    printf("Done\r\n");
 
-    debug_printf("Performing medium chump test...\n");
-    perform_array_test(MEDIUM_CHUMP_SIZE, MEDIUM_CHUMP_ARRAY_SIZE);
-    debug_printf("Done\n\n");
+    // printf("Performing medium chump test...\r\n");
+    // perform_array_test(MEDIUM_CHUMP_SIZE, MEDIUM_CHUMP_ARRAY_SIZE);
+    // printf("Done\f");
 
-    debug_printf("Performing big chump test...\n");
-    perform_array_test(BIG_CHUMP_SIZE, BIG_CHUMP_ARRAY_SIZE);
-    debug_printf("Done\n\n");
+    // printf("Performing big chump test...\r\n");
+    // perform_array_test(BIG_CHUMP_SIZE, BIG_CHUMP_ARRAY_SIZE);
+    // printf("Done\f");
 
     return 0;
 }

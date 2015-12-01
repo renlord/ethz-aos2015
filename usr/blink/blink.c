@@ -1,5 +1,11 @@
 #include "blink.h"
 
+#ifdef BLINK_DEBUG
+# define BLINK_PRINT(x) printf x
+#else
+# define BLINK_PRINT(x) do {} while (0)
+#endif
+
 static volatile uint32_t *gpio1_oe;
 static volatile uint32_t *gpio1_dataout;
 
@@ -34,7 +40,7 @@ static void set_gpio1_registers(lvaddr_t base)
 
 int main(int argc, char *argv[])
 {
-    printf("%s, pid: %u\r\n", disp_name(), disp_get_domain_id());
+    BLINK_PRINT(("%s, pid: %u\r\n", disp_name(), disp_get_domain_id()));
     
     uint32_t blink_rate = (argc > 1) ? atoi(argv[1]) : 1; 
     uint32_t no_of_blinks = (argc > 2) ? atoi(argv[2]) : 10; 
@@ -51,7 +57,7 @@ int main(int argc, char *argv[])
         err_print_calltrace(err);
         abort();
     }
-    printf("dev cap received, dev mapped. OK\r\n");
+    BLINK_PRINT("dev cap received, dev mapped. OK\r\n");
     
     size_t offset = GPIO1_BASE - 0x40000000;
     lvaddr_t uart_addr = (1UL << 28)*3;
@@ -60,7 +66,7 @@ int main(int argc, char *argv[])
                             VREGION_FLAGS_READ_WRITE_NOCACHE);
                             
     set_gpio1_registers(uart_addr);
-    printf("user device registers set. OK\r\n");
+    BLINK_PRINT("user device registers set. OK\r\n");
 
     err = periodic_event_create(&pe, get_default_waitset(), delay,  
                                     MKCLOSURE((void *) blink_led, NULL));
@@ -68,7 +74,7 @@ int main(int argc, char *argv[])
         DEBUG_ERR(err, "failed to register periodic event!\n");
         err_print_calltrace(err);
     } else {
-        printf("periodic event registered.\r\n");
+        BLINK_PRINT("periodic event registered.\r\n");
     }
     
     for(uint32_t i = 0; i < no_of_blinks; i++) {
@@ -85,7 +91,7 @@ int main(int argc, char *argv[])
         abort();
     }
     
-    debug_printf("blink exiting\n");
+    BLINK_PRINT("blink exiting\n");
 
     err = aos_rpc_send_string(&local_rpc, "bye");
     if (err_is_fail(err)) {

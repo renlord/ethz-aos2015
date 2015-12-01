@@ -6,6 +6,9 @@
 #define SIGINT      3  
 #define SIGEOF      26
 #define RETURN      13
+#define FORMFEED    12
+
+static uint8_t shell_height = 24;
 
 static void shell_input(char *buf, size_t len) 
 {
@@ -81,8 +84,56 @@ static void run_memtest(char *input_argv)
 
 static void oncore(char *input_argv) 
 {   
-    
     printf("oncore excecution complete...\r\n");
+}
+
+static void ps(char *input_argv)
+{
+    domainid_t *pids;
+    size_t pid_count;
+    errval_t err = aos_rpc_process_get_all_pids(&local_rpc, &pids, &pid_count);
+    if(err_is_fail(err)){
+        err_print_calltrace(err);
+        abort();
+    }
+
+    const char *divide = "+--------------------------+\r\n";
+    printf("%s", divide);
+    printf("| Number of processes: %d |\r\n", pid_count);
+    printf("%s", divide);
+    //FIXME: some weird bug.
+    //printf("%s| Number of processes: %d |\r\n%s", divide, pid_count, divide);
+
+    for(uint32_t j = 0; j < pid_count; j++){
+        char *name_buf = (char *)malloc(20);
+        err = aos_rpc_process_get_name(&local_rpc, pids[j], &name_buf);
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "failed to get process name\n");
+            err_print_calltrace(err);
+            abort();
+        }
+        assert(name_buf != NULL);
+        printf("| %d. %-15s %d |\r\n", j, name_buf, pids[j]);
+        memset(name_buf, '\0', 20);
+    }
+    printf(divide);
+}
+
+static void clear(void)
+{
+    for (int i = 0; i < shell_height; i++) {
+        putchar(FORMFEED);
+    }
+}
+
+static errval_t spawn(char *argv_str, domainid_t *new_pid)
+{
+    errval_t err = aos_rpc_process_spawn(&local_rpc, argv_str, new_pid);
+    if(err_is_fail(err)){
+        err_print_calltrace(err);
+        return err;
+    }
+    return SYS_ERR_OK;
 }
 
 int main(int argc, char *argv[])
@@ -90,6 +141,8 @@ int main(int argc, char *argv[])
     char input_buf[256];
     char *input_argv;
     char cmd[64];
+
+    errval_t err;
 
     memset(input_buf, '\0', 256);
 
@@ -101,7 +154,14 @@ int main(int argc, char *argv[])
 
         if (is_user_app(cmd)) {
             // execute spawn user application and provide arguments.
-            printf("executing %s...\r\n", cmd);
+            domainid_t pid;
+            err = spawn(input_buf, &pid);
+            if (err_is_fail(err)) {
+                printf("Oops! Failed to spawn `%s` process\r\n", cmd);
+            } else {
+                printf("Spawned process `%s` - pid: %d\r\n", cmd, pid);
+            }
+            //printf("executing %s...\r\n", cmd);
             continue;
         } 
 
@@ -116,20 +176,21 @@ int main(int argc, char *argv[])
         } else if (strcmp(cmd, "oncore") == 0) {
             // eg. oncore 1 [USR_APP]
             // eg. oncore 2 [USR_APP]
-            // err = aos_rpc_process_spawn();
-            // if (err_is_fail(err)) {
-
-            // }
+            oncore(input_argv);
         } else if (strcmp(cmd, "ps") == 0) {
-            printf("`ps` command runned...\r\n");
+            ps(input_argv);
+        } else if (strcmp(cmd, "kill") == 0) {
+
         } else if (strcmp(cmd, "list") == 0) {
             list_app();
+        } else if (strcmp(cmd, "clear") == 0) {
+            clear();
         } else {
             printf("unknown command. try again\r\n");
         }
 
         memset(input_buf, '\0', 256);
-        memset(cmd, '\0', 256);
+        memset(cmd, '\0', 64);
     }
     return 0;
 }

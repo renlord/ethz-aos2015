@@ -389,8 +389,7 @@ errval_t aos_rpc_process_get_name(struct aos_rpc *chan, domainid_t pid,
         event_dispatch(get_default_waitset());
     }
     
-    memcpy(*name, chan->msg_buf,
-        strlen((char *)chan->msg_buf));
+    memcpy(*name, chan->msg_buf, strlen((char *)chan->msg_buf));
 
     clean_aos_rpc_msgbuf(chan);
 
@@ -401,8 +400,6 @@ errval_t aos_rpc_process_get_name(struct aos_rpc *chan, domainid_t pid,
 errval_t aos_rpc_process_get_all_pids(struct aos_rpc *chan,
                                       domainid_t **pids, size_t *pid_count)
 {
-    // TODO (milestone 5): implement process id discovery
-
     struct lmp_chan lc = chan->lc; 
     errval_t err;
 
@@ -412,8 +409,7 @@ errval_t aos_rpc_process_get_all_pids(struct aos_rpc *chan,
         DEBUG_ERR(err, "fail to send PROCESS_GET_ALL_PIDS event to init.\n");
         return err;
     }
-    
-    
+
     // 1. get pid_count
     event_dispatch(get_default_waitset());
     *pid_count = chan->msg_buf[0];

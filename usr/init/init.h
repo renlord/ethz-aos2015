@@ -52,6 +52,24 @@ enum ps_status {
 	PS_STATUS_SLEEP
 };
 
+struct ps_state {
+    struct lmp_chan *lc;
+    char mailbox[500];
+    size_t char_count;
+    uint32_t send_msg[9];
+    struct capref send_cap;
+};
+
+struct ps_stack {
+    struct ps_stack *next;
+    struct ps_state *state;
+    // struct process *process;
+    bool background;
+    bool pending_request;
+    char name[30];
+    domainid_t pid;
+};
+
 struct ps_entry {
 	domainid_t pid;
 	enum ps_status status;
@@ -95,17 +113,6 @@ static inline errval_t serial_get_char(char *c)
     *c = (char)*uart3_rhr;
 
     return SYS_ERR_OK;
-}
-
-static inline void debug_print_stack(void)
-{
-    debug_printf("PROCESS STACK:\n");
-    struct ps_stack *cur = ps_stack;
-    while(cur != NULL){
-        debug_printf("%s\n", cur->name);
-        cur = cur->next;
-    }
-    debug_printf("DONE\n");
 }
 
 void recv_handler(void *lc_in);

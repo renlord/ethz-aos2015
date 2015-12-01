@@ -30,12 +30,10 @@
 #define FIRSTEP_BUFLEN          21u
 
 static coreid_t my_core_id;
-
-static struct client_state *fst_client;
-static struct process *fst_process;
     
 // static struct process *fst_process;
 static struct ps_stack *ps_stack;
+
 static errval_t spawn(char *name, domainid_t *pid);
 static errval_t get_pid_at_index(uint32_t idx, domainid_t *pid);
 static const char *get_pid_name(domainid_t pid);
@@ -44,24 +42,6 @@ static errval_t reply_string(struct lmp_chan *lc, const char *string);
 // static struct process *register_process(struct spawninfo *si, const char *name);
 
 struct bootinfo *bi;
-
-struct ps_state {
-    struct lmp_chan *lc;
-    char mailbox[500];
-    size_t char_count;
-    uint32_t send_msg[9];
-    struct capref send_cap;
-};
-
-struct ps_stack {
-    struct ps_stack *next;
-    struct ps_state *state;
-    // struct process *process;
-    bool background;
-    bool pending_request;
-    char name[30];
-    domainid_t pid;
-};
 
 struct serial_write_lock {
     bool lock;
@@ -101,23 +81,35 @@ static struct ps_stack *stack_pop(void)
     return top;
 }
 
-static void stack_remove_state(struct ps_state *proc)
-{
-    if(proc == ps_stack->state){
-        stack_pop();
-        return;
-    }
+// static void stack_remove_state(struct ps_state *proc)
+// {
+//     if(proc == ps_stack->state){
+//         stack_pop();
+//         return;
+//     }
     
-    struct ps_stack *elm = ps_stack;
-    while(elm->next != NULL && elm->next->state != proc){
-        elm = elm->next;
-    }
+//     struct ps_stack *elm = ps_stack;
+//     while(elm->next != NULL && elm->next->state != proc){
+//         elm = elm->next;
+//     }
     
-    if(elm->next->state == proc){
-        elm->next = elm->next->next;
-    }
+//     if(elm->next->state == proc){
+//         elm->next = elm->next->next;
+//     }
     
-}
+// }
+
+// static void debug_print_stack(void)
+// {
+//     debug_printf("PROCESS STACK:\n");
+//     struct ps_stack *cur = ps_stack;
+//     while(cur != NULL){
+//         debug_printf("%s\n", cur->name);
+//         cur = cur->next;
+//     }
+//     debug_printf("DONE\n");
+// }
+
 
 // static void deregister_process(struct process *process);
 // static void deregister_process(struct process *process)
@@ -948,11 +940,6 @@ int main(int argc, char *argv[])
 
     set_uart3_registers(uart_addr);
 
-    // Technically, we would just like to spawn a shell process and that's it.
-    // TODO
-
-    // PROCESS SPAWNING CODE 
-    // TO BE MOVED TO DEDICATED program afterwards.
     if (my_core_id == 0) {
         debug_printf("Spawning shell...\n");
         domainid_t shell_pid;
@@ -960,15 +947,8 @@ int main(int argc, char *argv[])
         if (err_is_fail(err)) {
             DEBUG_ERR(err, "failed to spawn memeater\n");
         }
-
-        // domainid_t blink_pid;
-        // err = spawn("blink", &blink_pid);
-        // if (err_is_fail(err)) {
-        //     DEBUG_ERR(err, "failed to spawn blink\n");
-        // }
         debug_printf("init domain_id: %d\n", disp_get_domain_id());
     } else {
-
         debug_printf("init on core[%d] waiting for further instructions\n", 
             my_core_id);
     }
