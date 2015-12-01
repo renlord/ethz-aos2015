@@ -338,6 +338,9 @@ static errval_t spawn_setup_dispatcher(struct spawninfo *si,
     /* Place core_id */
     disp_gen->core_id = core_id;
 
+    /* Place domain_id */
+    disp_gen->domain_id = si->domain_id;
+
     /* Setup dispatcher and make it runnable */
     disp->udisp = spawn_dispatcher_base;
     disp->disabled = 1;

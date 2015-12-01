@@ -67,8 +67,6 @@ static void recv_handler(void *rpc_void)
                  rpc->char_count++;
 
                  if (msg.buf.words[i] == '\0') {
-                    debug_printf("Text msg received for %s: %s\n",
-                        disp_name(), rpc->msg_buf);
                     rpc->char_count = 0;
                     break;
                 }
@@ -132,10 +130,15 @@ static void recv_handler(void *rpc_void)
             break;
         }
 
-        case PROCESS_GET_ALL_PIDS:
+        case PROCESS_GET_NO_OF_PIDS:
         {
-            // get number of pids
-            rpc->msg_buf[0] = msg.buf.words[1];
+            rpc->msg_buf[0] = (char) msg.buf.words[1];
+            break;
+        }
+
+        case PROCESS_GET_PID:
+        {
+            rpc->msg_buf[0] = (char) msg.buf.words[1];
             break;
         }
 
@@ -385,14 +388,15 @@ errval_t aos_rpc_process_get_name(struct aos_rpc *chan, domainid_t pid,
     while (chan->wait_event) {
         event_dispatch(get_default_waitset());
     }
-    memcpy(chan->process_name, chan->msg_buf,
+    
+    memcpy(*name, chan->msg_buf,
         strlen((char *)chan->msg_buf));
-    *name = chan->process_name;
 
     clean_aos_rpc_msgbuf(chan);
 
     return SYS_ERR_OK;
 }
+
 
 errval_t aos_rpc_process_get_all_pids(struct aos_rpc *chan,
                                       domainid_t **pids, size_t *pid_count)
@@ -403,26 +407,38 @@ errval_t aos_rpc_process_get_all_pids(struct aos_rpc *chan,
     errval_t err;
 
     err = lmp_chan_send1(&lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
-        PROCESS_GET_ALL_PIDS);
+        PROCESS_GET_NO_OF_PIDS);
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "fail to send PROCESS_GET_ALL_PIDS event to init.\n");
         return err;
     }
-
+    
+    
     // 1. get pid_count
     event_dispatch(get_default_waitset());
     *pid_count = chan->msg_buf[0];
-    clean_aos_rpc_msgbuf(chan);
 
-    *pids = (domainid_t *) malloc(*pid_count * sizeof(domainid_t));
-
-    // 2. for each pid, we dispatch event.
-    for (size_t i = 0; i < *pid_count; i++) {
-        event_dispatch(get_default_waitset());
-        *pids[i] = chan->msg_buf[0];
-        clean_aos_rpc_msgbuf(chan);
+    // clean_aos_rpc_msgbuf(chan);
+    err = paging_alloc(get_current_paging_state(),
+                       (void**) pids,
+                       *pid_count * sizeof(domainid_t));
+    if (err_is_fail(err)){
+        // FIXME push err to stack and return
+        err_print_calltrace(err);
+        abort();
     }
+    
+    domainid_t *pids_deref = *pids;
 
+    
+    // 2. TO BE OPTIMIZED: Right now ask for pids one at a time instead of
+    //    getting as many as possible in each msg
+    for (size_t i = 0; i < *pid_count; i++) {
+        lmp_chan_send2(&lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP,
+            PROCESS_GET_PID, i);
+        event_dispatch(get_default_waitset());
+        pids_deref[i] = chan->msg_buf[0];
+    }
     return SYS_ERR_OK;
 }
 
@@ -535,17 +551,17 @@ errval_t aos_rpc_init(struct aos_rpc *rpc)
     struct paging_state *st = get_current_paging_state();
     
     st->rpc = rpc;
-
+    
     // Listen for response from init. When recv_handler returns,
     // cap should be in rpc->return_cap
-    debug_printf("Waiting for response from init\n");
+    debug_printf("waiting for response from init\n");
     event_dispatch(get_default_waitset());
-
+    debug_printf("got response\n");
+    
     return SYS_ERR_OK;
 }
 
 static void clean_aos_rpc_msgbuf(struct aos_rpc *rpc)
 {
-    return; // FIXME delete
     memset(rpc->msg_buf, '\0', AOS_RPC_MSGBUF_LEN);
 }

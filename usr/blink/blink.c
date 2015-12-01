@@ -6,9 +6,6 @@ static volatile uint32_t *gpio1_dataout;
 static struct periodic_event pe;
 
 static void set_gpio1_registers(lvaddr_t base);
-// static void stall(float secs);
-// static void blink_led(void);
-// static void led_toggle(bool t);
 
 static void blink_led(void)
 {
@@ -27,36 +24,7 @@ static void blink_led(void)
     // Output disable
     *gpio1_oe |= bitmask;
 
-    errval_t err = event_dispatch(get_default_waitset());
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "failed to dispatch event\n");
-        err_print_calltrace(err);
-    }
 }
-
-// static void led_toggle(bool t)
-// {
-//     uint32_t bitmask = 1<<8;
-
-//     // Output enable
-//     *gpio1_oe &= ~bitmask;
-    
-//     *gpio1_dataout = t ? (*gpio1_dataout |= bitmask) : 
-//                             (*gpio1_dataout &= ~bitmask);
-
-//     // Output disable
-//     *gpio1_oe |= bitmask;
-// }
-
-// static void stall(float secs) 
-// {
-//     unsigned long us = (int) (float)(1UL << 26)*3*secs;
-
-//     while (us-- > 0) 
-//     {
-//         __asm volatile("nop");
-//     }
-// }
 
 static void set_gpio1_registers(lvaddr_t base)
 {
@@ -68,18 +36,10 @@ int main(int argc, char *argv[])
 {
     printf("%s, pid: %u\r\n", disp_name(), disp_get_domain_id());
     
-    // while(true){
-    //     if(i++ % 30000000 == 0){
-    //         aos_rpc_send_string(&local_rpc, "special blink");
-    //         event_dispatch(get_default_waitset());
-    //         // debug_printf("blink still alive...\n");
-    //     }
-    // }
+    uint32_t blink_rate = (argc > 1) ? atoi(argv[1]) : 1; 
+    uint32_t no_of_blinks = (argc > 2) ? atoi(argv[2]) : 10; 
     
-    // int32_t no_of_blinks = (argc > 1) ? atoi(argv[1]) : 5;
-    delayus_t blink_rate = ((argc > 2) ? atoi(argv[2]) : 1) * 10000; 
-
-    printf("blink_rate set to: %u\r\n", blink_rate);
+    delayus_t delay = 1000.0/(float)blink_rate;
     
     errval_t err;
     struct capref retcap;
@@ -102,23 +62,36 @@ int main(int argc, char *argv[])
     set_gpio1_registers(uart_addr);
     printf("user device registers set. OK\r\n");
 
-    err = periodic_event_create(&pe, get_default_waitset(), blink_rate,  
+    err = periodic_event_create(&pe, get_default_waitset(), delay,  
                                     MKCLOSURE((void *) blink_led, NULL));
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "failed to register periodic event!\n");
         err_print_calltrace(err);
     } else {
-        debug_printf("periodic event registered.\r\n");
+        printf("periodic event registered.\r\n");
     }
     
-    err = event_dispatch(get_default_waitset());
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "failed to dispatch event\n");
-        err_print_calltrace(err);
-    } 
+    for(uint32_t i = 0; i < no_of_blinks; i++) {
+        err = event_dispatch(get_default_waitset());
+        if (err_is_fail(err)) {
+            DEBUG_ERR(err, "failed to dispatch event\n");
+            err_print_calltrace(err);
+        }
+    }
     
-    // assert(argc == 1);
-    // led_toggle(argv[1]);
+    err = periodic_event_cancel(&pe);
+    if(err_is_fail(err)){
+        err_print_calltrace(err);
+        abort();
+    }
+    
+    debug_printf("blink exiting\n");
 
+    err = aos_rpc_send_string(&local_rpc, "bye");
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "fail to say bye\n");
+        err_print_calltrace(err);
+    }
+    
     return 0;
 }

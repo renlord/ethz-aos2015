@@ -46,6 +46,23 @@ enum urpc_response {
 	REMOTE_SPAWN_FAIL,
 };
 
+enum ps_status {
+	PS_STATUS_RUNNING,
+	PS_STATUS_ZOMBIE,
+	PS_STATUS_SLEEP
+};
+
+struct ps_entry {
+	domainid_t pid;
+	enum ps_status status;
+	char *argv[MAX_CMDLINE_ARGS];
+	char *argbuf;
+	size_t argbytes;
+	struct capref rootcn_cap, dcb;
+	struct cnoderef rootcn;
+	uint8_t exitcode;
+};
+
 errval_t initialize_ram_alloc(void);
 errval_t initialize_mem_serv(void);
 
@@ -78,6 +95,17 @@ static inline errval_t serial_get_char(char *c)
     *c = (char)*uart3_rhr;
 
     return SYS_ERR_OK;
+}
+
+static inline void debug_print_stack(void)
+{
+    debug_printf("PROCESS STACK:\n");
+    struct ps_stack *cur = ps_stack;
+    while(cur != NULL){
+        debug_printf("%s\n", cur->name);
+        cur = cur->next;
+    }
+    debug_printf("DONE\n");
 }
 
 void recv_handler(void *lc_in);

@@ -33,7 +33,8 @@ enum rpc_code {
     SERIAL_GET_CHAR,
     PROCESS_SPAWN,
     PROCESS_GET_NAME,
-    PROCESS_GET_ALL_PIDS
+    PROCESS_GET_NO_OF_PIDS,
+    PROCESS_GET_PID,
 };
 
 enum lock_code {
