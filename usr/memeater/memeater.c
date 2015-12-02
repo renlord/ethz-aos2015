@@ -73,38 +73,38 @@ static void perform_array_test(size_t chump_size, uint32_t array_size)
 {
     size_t free_s, alloc_s, max_s;
             
-    printf("Creating array...\r\n");
+    printf("Creating array...\n");
     void **array = allocate_array(chump_size, array_size);
-    printf("Array created with start addr 0x%08x.\r\n", array);
+    printf("Array created with start addr 0x%08x.\n", array);
     
     debug_get_free_space(&free_s, &alloc_s, &max_s);
-    printf("Free space: %d MB, allocated space: %d MB, max blob: %d MB\r\n",
+    printf("Free space: %d MB, allocated space: %d MB, max blob: %d MB\n",
         (free_s >> 20), (alloc_s >> 20), (max_s >> 20));
     
-    printf("Checking array...\r\n");
+    printf("Checking array...\n");
     check_array(array, array_size);
-    printf("Array checked.\r\n");
+    printf("Array checked.\n");
     
-    printf("Freeing array...\r\n");
+    printf("Freeing array...\n");
     free_array(array, array_size);
-    printf("Array freed.\r\n");
+    printf("Array freed.\n");
     
     debug_get_free_space(&free_s, &alloc_s, &max_s);
-    printf("Free space: %d MB, allocated space: %d MB, max blob: %d MB\r\n",
+    printf("Free space: %d MB, allocated space: %d MB, max blob: %d MB\n",
         (free_s >> 20), (alloc_s >> 20), (max_s >> 20));
 }
 
 int main(int argc, char *argv[])
 {
-    printf("Performing small chump test...\r\n");
+    printf("Performing small chump test...\n");
     perform_array_test(SMALL_CHUMP_SIZE, SMALL_CHUMP_ARRAY_SIZE);
-    printf("Done\r\n");
+    printf("Done\n");
 
-    // printf("Performing medium chump test...\r\n");
+    // printf("Performing medium chump test...\n");
     // perform_array_test(MEDIUM_CHUMP_SIZE, MEDIUM_CHUMP_ARRAY_SIZE);
     // printf("Done\f");
 
-    // printf("Performing big chump test...\r\n");
+    // printf("Performing big chump test...\n");
     // perform_array_test(BIG_CHUMP_SIZE, BIG_CHUMP_ARRAY_SIZE);
     // printf("Done\f");
 

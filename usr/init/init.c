@@ -34,7 +34,7 @@ static coreid_t my_core_id;
 // static struct process *fst_process;
 static struct ps_stack *ps_stack;
 
-static errval_t spawn(char *name, domainid_t *pid);
+static errval_t spawn(char *name, domainid_t *pid, coreid_t coreid);
 static errval_t get_pid_at_index(uint32_t idx, domainid_t *pid);
 static const char *get_pid_name(domainid_t pid);
 static size_t get_pids_count(void);
@@ -433,7 +433,7 @@ void recv_handler(void *lc_in)
             assert(strlen(app_name) > 1);
 
             domainid_t pid;
-            err = spawn(app_name, &pid);
+            err = spawn(app_name, &pid, msg.buf.words[1]);
 
             // reset mailbox
             memset(proc->mailbox, '\0', 500);
@@ -538,8 +538,7 @@ void recv_handler(void *lc_in)
     }
 }
 
-
-static errval_t spawn(char *name, domainid_t *pid)
+static errval_t spawn(char *name, domainid_t *pid, coreid_t coreid)
 {
     errval_t err;
     
@@ -574,10 +573,31 @@ static errval_t spawn(char *name, domainid_t *pid)
     char *envp[1];
     envp[0] = NULL; // FIXME pass parent environment
     
+    /* URPC REMOTE SPAWN */
+    debug_printf("PROCESS SPAWN CORE ID: %d\n", coreid);
+    if (coreid != disp_get_core_id()) {
+        err = urpc_send(REMOTE_SPAWN, coreid, name);
+        if (err_is_fail(err)) {
+            err_print_calltrace(err);
+            DEBUG_ERR(err, "fail urpc send to destination core: %d\n", coreid);
+        }
+        if (!new_elm->background) {
+            char msg[1024];
+            size_t recv_len;
+            err = urpc_poll(REMOTE_SPAWN_DONE, coreid, msg, &recv_len);
+            if (err_is_fail(err)) {
+                err_print_calltrace(err);
+                DEBUG_ERR(err, "fail urpc poll on destination core: %d\n", 
+                    coreid);
+            }
+        } else {
+            printf("spawned process in background on core %d\n", coreid);
+        }
+    }
+
     // concat name with path
     const char *path = "armv7/sbin/"; // size 11
     char concat_name[strlen(name) + 11];
-
 
     memcpy(concat_name, path, strlen(path));
     memcpy(&concat_name[strlen(path)], name, strlen(name)+1);
@@ -940,10 +960,10 @@ int main(int argc, char *argv[])
 
     set_uart3_registers(uart_addr);
 
-    if (my_core_id == 0) {
+    if (my_core_id == 1) {
         debug_printf("Spawning shell...\n");
         domainid_t shell_pid;
-        err = spawn("shell", &shell_pid);
+        err = spawn("shell", &shell_pid, disp_get_core_id());
         if (err_is_fail(err)) {
             DEBUG_ERR(err, "failed to spawn memeater\n");
         }

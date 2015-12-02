@@ -54,6 +54,8 @@ struct aos_rpc {
     size_t char_count;
     bool wait_event;
     char process_name[20];
+
+    coreid_t coreid;
 }local_rpc;
 
 /**
@@ -92,7 +94,7 @@ errval_t aos_rpc_get_dev_cap(struct aos_rpc *chan, lpaddr_t paddr,
  * \arg newpid the process id of the newly spawned process
  */
 errval_t aos_rpc_process_spawn(struct aos_rpc *chan, char *name,
-                               domainid_t *newpid);
+                               coreid_t coreid, domainid_t *newpid);
 
 /**
  * \brief Get name of process with id pid.

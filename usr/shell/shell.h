@@ -56,6 +56,15 @@ static inline void my_free(void *buf)
     paging_dealloc(get_current_paging_state(), buf);
 }
 
+/* 
+ * \brief gets the first token of the string and stores in *head. 
+ *
+ * \param str, the string where the first token should be extracted.
+ * \param head, the pointer where the first token will be pointed to
+ * \param delim, delimiting character of choice
+ *
+ * \return remaining string after first token is extracted
+ */
 static inline char *headstr(char *str, char *head, int delim)
 {
     assert(head != NULL);

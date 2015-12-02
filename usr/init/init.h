@@ -29,22 +29,14 @@
 #include <omap44xx_map.h>
 #include <spawndomain/spawndomain.h>
 
+#include "urpc.h"
+
 extern struct bootinfo *bi;
 
 static volatile uint32_t *uart3_thr = NULL;
 static volatile uint32_t *uart3_rhr = NULL;
 static volatile uint32_t *uart3_fcr = NULL;
 static volatile uint32_t *uart3_lsr = NULL;
-
-enum urpc_request {
-	REMOTE_SPAWN,
-
-};
-
-enum urpc_response {
-	REMOTE_SPAWN_DONE,
-	REMOTE_SPAWN_FAIL,
-};
 
 enum ps_status {
 	PS_STATUS_RUNNING,
