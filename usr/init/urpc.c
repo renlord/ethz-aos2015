@@ -9,10 +9,10 @@ static void _urpc_init(struct urpc_blob *blob, uintptr_t start, size_t bufsize)
 	blob->base 		= (lvaddr_t) start;
 	blob->bufsize 	= bufsize;
 	blob->command 	= (uint32_t *) start;
-	blob->content 	= (void *) start + 4;
+	blob->content 	= (void *) (start + 4);
 }
 
-void uprc_init(uintptr_t start, size_t framesize) 
+void urpc_init(uintptr_t start, size_t framesize) 
 {
 	mycoreid = disp_get_core_id();
 

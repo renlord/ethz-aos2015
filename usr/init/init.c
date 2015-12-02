@@ -816,7 +816,6 @@ int main(int argc, char *argv[])
         strncpy((char *) buf, test_str, 5);
         debug_printf("TEST STRING: %s\n", buf);
 #endif
-
         struct frame_identity urpc_frame_id; 
         err = invoke_frame_identify(urpc_frame, &urpc_frame_id);
         if (err_is_fail(err)) {
@@ -824,6 +823,8 @@ int main(int argc, char *argv[])
             abort();
         }
         debug_printf("URPC Physical Addr: 0x%08x\n", urpc_frame_id.base);
+
+        urpc_init((uintptr_t) buf, BASE_PAGE_SIZE);
 
         err = spawn_core_load_kernel(bi, 1, 1, "", urpc_frame_id, cap_kernel);
         if (err_is_fail(err)) {
@@ -844,6 +845,8 @@ int main(int argc, char *argv[])
             DEBUG_ERR(err, "fail to map urpc frames\n");
             abort();
         }
+
+        urpc_init((uintptr_t) buf, BASE_PAGE_SIZE);
 
 #ifdef INIT_COMM_TEST
         struct frame_identity urpc_frame_id; 

@@ -120,10 +120,11 @@ static inline errval_t urpc_write(struct urpc_blob *buf,
 	if (write_size > buf->bufsize) {
 		return URPC_ERR_BUF_LEN_EXCEEDED;
 	}
-
+	debug_printf("hello\n");
 	while(!urpc_is_writable(out, mycoreid)) {
 		thread_yield();
 	}
+	debug_printf("hello2\n");
 
 	memcpy(buf->content, inst, write_size);
 
@@ -131,7 +132,7 @@ static inline errval_t urpc_write(struct urpc_blob *buf,
 	return SYS_ERR_OK;
 }
 
-void uprc_init(uintptr_t start, size_t framesize);
+void urpc_init(uintptr_t start, size_t framesize);
 errval_t urpc_poll(coreid_t coreid);
 errval_t urpc_remote_spawn(coreid_t exec_core, char *appname, domainid_t pid, 
 						   bool background, enum urpc_spawn_status status);
