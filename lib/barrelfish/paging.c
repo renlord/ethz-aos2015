@@ -444,9 +444,6 @@ static errval_t allocate_pt(struct paging_state *st, lvaddr_t addr,
         }
 
         //Map frame/dev capability in L2 pagetable
-        if(l1_slot == 0)
-            debug_printf("L2-MAPPING: l1: %d, l2: %d, entries: %d, addr: 0x%08x\n",
-                l1_slot, l2_slot_aligned, l2_entries, next_addr);
         err = vnode_map(*l2_cap, frame_cap, l2_slot_aligned,
                         flags, cap_offset, l2_entries);
         if (err_is_fail(err)) {
@@ -552,7 +549,7 @@ void page_fault_handler(enum exception_type type, int subtype,
     
     /* Otherwise we need to allocate. If we're init, we do it directly,
        and otherwise we do it by RPC */
-    struct capref frame_cap = NULL_CAP;
+    struct capref ram_cap = NULL_CAP;
     size_t req_size = BASE_PAGE_SIZE * ENTRIES_PER_FRAME;
     size_t ret_size;
     errval_t err;
@@ -561,11 +558,11 @@ void page_fault_handler(enum exception_type type, int subtype,
     const char *prog = disp_name();
     bool is_init = strlen(prog) == 4 && strncmp(obj, prog, 4) == 0;
     if(is_init){
-        err = frame_alloc(&frame_cap, req_size, &ret_size);
+        err = frame_alloc(&ram_cap, req_size, &ret_size);
     } else {
         size_t req_bits = log2ceil(req_size);
         size_t ret_bits;
-        err = aos_rpc_get_ram_cap(current.rpc, req_bits, &frame_cap, &ret_bits);
+        err = aos_rpc_get_ram_cap(current.rpc, req_bits, &ram_cap, &ret_bits);
         ret_size = (1UL << ret_bits);
     }
     
@@ -581,7 +578,28 @@ void page_fault_handler(enum exception_type type, int subtype,
                      req_size, addr, ret_size);
         abort();
     }
-     
+    
+    struct capref frame_cap;
+    
+    // Retype RAM cap to frame cap
+    err = slot_alloc(&frame_cap);
+    if (err_is_fail(err)) {
+        err_print_calltrace(err);        
+        err_push(err, LIB_ERR_SLOT_ALLOC);
+        return;
+    }
+    
+    err = cap_retype(frame_cap, ram_cap, ObjType_Frame, log2ceil(ret_size));
+    if (err_is_fail(err)) {
+        err_push(err, LIB_ERR_CAP_RETYPE);
+        return;
+    }
+
+    err = cap_destroy(ram_cap);
+    if (err_is_fail(err)) {
+        return;
+    }
+    
     // Allocate L1 and L2 entries, if needed, and insert frame cap
     allocate_pt(&current, (lvaddr_t)addr, frame_cap,
                 0, ret_size, VREGION_FLAGS_READ_WRITE, true);

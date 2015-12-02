@@ -275,7 +275,8 @@ static void spawnd_recv_handler(void *lc_in)
         case SPAWND_READY:
         {
             debug_printf("received ready signal from spawnd.\n");
-
+            
+            
             err = lmp_chan_send2(&spawnd_state.lc, LMP_SEND_FLAGS_DEFAULT,
                                  NULL_CAP, SPAWND_READY, spawnd_bi_addr);
             
@@ -299,20 +300,19 @@ static void spawnd_recv_handler(void *lc_in)
         case REQUEST_FRAME_CAP:
         {
             size_t req_bits = msg.buf.words[1];
-            size_t req_bytes = (1UL << req_bits);
             struct capref dest = NULL_CAP;
             
             // Perform the allocation
-            size_t ret_bytes;
-            err = frame_alloc(&dest, req_bytes, &ret_bytes);
+            err = ram_alloc(&dest, req_bits);
             if (err_is_fail(err)){
-                debug_printf("Failed memserv allocation.\n");
+                debug_printf("Could not allocate ram.\n");
                 err_print_calltrace(err);
+                abort();
             }
             
             // Send cap and return bits back to caller
             spawnd_state.send_msg[0] = REQUEST_FRAME_CAP;
-            spawnd_state.send_msg[1] = log2ceil(ret_bytes);
+            spawnd_state.send_msg[1] = req_bits;
             spawnd_state.send_cap = dest;
             
             err = lmp_chan_register_send(&spawnd_state.lc, get_default_waitset(),
@@ -796,6 +796,8 @@ errval_t spawn_spawnd(void)
     assert(bi != NULL);
     errval_t err;
     
+    debug_printf("ram alloc state: 0x%08x\n", get_ram_alloc_state());
+    
     spawnd_state.next = NULL; // FIXME ??
     spawnd_state.type = BACKGROUND;
         
@@ -867,12 +869,31 @@ errval_t spawn_spawnd(void)
         return err;
     }
     
+    
+    struct capref module_cap_init = {
+        .cnode = cnode_root,
+        .slot = ROOTCN_SLOT_MODULECN,
+    };
+
+    struct capref module_cap_spawnd = {
+        .cnode = si.rootcn,
+        .slot = ROOTCN_SLOT_MODULECN,
+    };
+    
+    // slot_alloc(&capcopy);
+    err = cap_copy(module_cap_spawnd, module_cap_init);
+    if (err_is_fail(err)){
+        err_print_calltrace(err);
+        abort();
+    }
+    
+    
     // Calculate bootinfo size
     size_t bi_size = sizeof(struct bootinfo) + sizeof(struct mem_region)*bi->regions_length;
     debug_printf("bi_size: %d, regions: %d\n", bi_size, bi->regions_length);
 
     // Allocate frame for new bootinfo in own cspace
-    // (FIXME we could skip this if we new how to get a hold of
+    // (FIXME we could skip this if we knew how to get a hold of
     //        the frame cap for the bootinfo at adress bi)
     debug_printf("Allocating frame for bootinfo\n");
     struct capref bi_cap;
@@ -909,7 +930,9 @@ errval_t spawn_spawnd(void)
     for(uint32_t i = 0; i < 160; i+=4){
         debug_printf("%d: 0x%08x\n", i, *((uint32_t *)my_bi_addr+i));
     }
-
+    
+    
+    
     // For region in region-length copy from inits module cnode to spawnd's module cnode
     // Run image
     err = spawn_run(&si);

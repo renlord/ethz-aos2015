@@ -311,8 +311,8 @@ int main(int argc, char *argv[])
     debug_printf("memeater started\n");
     debug_printf("%s, pid: %u\n", disp_name(), disp_get_domain_id());
     
-    domainid_t pid;
-    aos_rpc_process_spawn(&local_rpc, "blink 1 100 &", &pid);
+    // domainid_t pid;
+    // aos_rpc_process_spawn(&local_rpc, "blink 1 100 &", &pid);
     debug_printf("Running Command Line Interface Demo...\n");
     cli_demo();
     debug_printf("Done\n\n");

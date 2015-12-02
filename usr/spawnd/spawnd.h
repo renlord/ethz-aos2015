@@ -5,6 +5,7 @@
 #include <barrelfish/barrelfish.h>
 #include <spawndomain/spawndomain.h>
 #include <barrelfish/debug.h>
+#include <mm/mm.h>
 
 // extern struct bootinfo *bi;
 

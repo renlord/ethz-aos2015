@@ -237,6 +237,7 @@ errval_t aos_rpc_get_ram_cap(struct aos_rpc *rpc, size_t req_bits,
     // Listen for response from init. When recv_handler returns,
     // cap should be in rpc->return_cap
     event_dispatch(get_default_waitset());
+
     *dest = rpc->return_cap;
     *ret_bits = rpc->ret_bits;
     
