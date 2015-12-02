@@ -34,7 +34,6 @@ static coreid_t my_core_id;
 // static struct process *fst_process;
 static struct ps_stack *ps_stack;
 
-static errval_t spawn(char *name, domainid_t *pid, coreid_t coreid);
 static errval_t get_pid_at_index(uint32_t idx, domainid_t *pid);
 static const char *get_pid_name(domainid_t pid);
 static size_t get_pids_count(void);
@@ -538,7 +537,7 @@ void recv_handler(void *lc_in)
     }
 }
 
-static errval_t spawn(char *name, domainid_t *pid, coreid_t coreid)
+errval_t spawn(char *name, domainid_t *pid, coreid_t coreid)
 {
     errval_t err;
     
@@ -575,24 +574,16 @@ static errval_t spawn(char *name, domainid_t *pid, coreid_t coreid)
     
     /* URPC REMOTE SPAWN */
     debug_printf("PROCESS SPAWN CORE ID: %d\n", coreid);
-    if (coreid != disp_get_core_id()) {
-        err = urpc_send(REMOTE_SPAWN, coreid, name);
+    if (coreid != my_core_id) {
+        err = urpc_remote_spawn(coreid, name, pid_counter + 1, 
+                                new_elm->background, SPAWN);
         if (err_is_fail(err)) {
             err_print_calltrace(err);
             DEBUG_ERR(err, "fail urpc send to destination core: %d\n", coreid);
+            return err;
         }
-        if (!new_elm->background) {
-            char msg[1024];
-            size_t recv_len;
-            err = urpc_poll(REMOTE_SPAWN_DONE, coreid, msg, &recv_len);
-            if (err_is_fail(err)) {
-                err_print_calltrace(err);
-                DEBUG_ERR(err, "fail urpc poll on destination core: %d\n", 
-                    coreid);
-            }
-        } else {
-            printf("spawned process in background on core %d\n", coreid);
-        }
+
+        return SYS_ERR_OK;
     }
 
     // concat name with path
@@ -627,7 +618,6 @@ static errval_t spawn(char *name, domainid_t *pid, coreid_t coreid)
         err_print_calltrace(err);
         return err;
     }
-
 
     // Copy Init's EP to Spawned Process' CSpace
     struct capref cap_dest;
@@ -945,22 +935,24 @@ int main(int argc, char *argv[])
         abort();
     }
 
-    err = paging_map_user_device(get_current_paging_state(), uart_addr,
+    if (my_core_id == 0) {
+        err = paging_map_user_device(get_current_paging_state(), uart_addr,
                             copy, offset, OMAP44XX_MAP_L4_PER_UART3_SIZE,
                             VREGION_FLAGS_READ_WRITE_NOCACHE);
 
 
-    if (err_is_fail(err)) {
-        debug_printf("Could not map io cap: %s\n", err_getstring(err));
-        err_print_calltrace(err);
-        abort();
-    } else {
-        debug_printf("cap_io mapped OK.\n");
+        if (err_is_fail(err)) {
+            debug_printf("Could not map io cap: %s\n", err_getstring(err));
+            err_print_calltrace(err);
+            abort();
+        } else {
+            debug_printf("cap_io mapped OK.\n");
+        }
+
+        set_uart3_registers(uart_addr);
     }
 
-    set_uart3_registers(uart_addr);
-
-    if (my_core_id == 1) {
+    if (my_core_id == 0) {
         debug_printf("Spawning shell...\n");
         domainid_t shell_pid;
         err = spawn("shell", &shell_pid, disp_get_core_id());

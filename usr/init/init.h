@@ -109,5 +109,7 @@ static inline errval_t serial_get_char(char *c)
 
 void recv_handler(void *lc_in);
 void send_handler(void *client_state_in);
+errval_t spawn(char *name, domainid_t *pid, coreid_t coreid);
+
 
 #endif // INIT_H

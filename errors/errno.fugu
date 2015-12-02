@@ -926,3 +926,9 @@ errors aos AOS_ERR_ {
     failure LMP_SEND_FAILURE        "Failure while sending AOS LMP message",
     failure LMP_MSGTYPE_UNKNOWN     "Unknown message type for AOS LMP implementation",
 };
+
+// errors for URPC
+errors urpc URPC_ERR_ {
+    failure BUF_LEN_EXCEEDED   "Message to be sent via URPC exceeds allocated frame size",
+    failure APP_NAME_EXCEEDED  "Remote spawn application app name + argv exceeds 256 char limit",
+};
