@@ -7,45 +7,83 @@
 #define SIGEOF      26
 #define RETURN      13
 #define FORMFEED    12
-
-static uint8_t shell_height = 24;
-
-static void shell_input(char *buf, size_t len) 
+    
+static void print_line(const char *str);
+static void print_line(const char *str) 
 {
-    int count = 0;
-    int c;
+    size_t slen = strlen(str);
+    for (size_t i = 0; i < slen; i++) {
+        errval_t err = aos_rpc_serial_putchar(&local_rpc, str[i]);
+        if (err_is_fail(err)) {
+            debug_printf("userland printf fail! %s\n", err_getstring(err));
+            err_print_calltrace(err);
+            break;
+        }   
+    }
+}
 
-    printf("$ ");
-    while (count < len) {
-        c = getchar();
-        if (count > 0) {
-            if (c == DELETE) {
+static void scan_line(char *buf);
+static void scan_line(char *buf) 
+{   
+    char c = '\0';
+    memset(buf, '\0', 256);
+    size_t i = 0;
+    print_line("cli-demo-shell$ ");
+
+    while (i < 256) {
+        errval_t err = aos_rpc_serial_getchar(&local_rpc, &c);
+        if (err_is_fail(err)) {
+            debug_printf("userland scan_line fail! %s\n", err_getstring(err));
+            err_print_calltrace(err);
+            break;
+        }
+
+        if (i > 0) {
+            if (c == DELETE) { // Mac has no backspace T_T
+                aos_rpc_serial_putchar(&local_rpc, BACKSPACE);
                 c = BACKSPACE;
             }
 
             if (c == BACKSPACE) {
-                count--;
-                printf("%c %c", BACKSPACE, BACKSPACE);
+                aos_rpc_serial_putchar(&local_rpc, ' ');
+                aos_rpc_serial_putchar(&local_rpc, BACKSPACE);
+                i--;
             }
         }
 
-        if (c == RETURN && count > 0) {
-            printf("\r\n");
+        if (c == RETURN) {
+            print_line("\r\n");
             break;
-        }
+        } 
 
         if (c > 31 && c < 127) {
-            putchar(c);
-            memcpy(&buf[count++], &c, 1);
+            // filtering special characters
+            err = aos_rpc_serial_putchar(&local_rpc, c);
+            if (err_is_fail(err)) {
+                DEBUG_ERR(err, "fail to put char after getting char\n");
+                err_print_calltrace(err);
+            }
+            memcpy(&buf[i], &c, 1);
+            i++;
         }
-        //debug_printf("%d", c);
     }
 }
 
-static void get_argv(char *str, char **argv, int *args)
+static void join(char *argv[], char *argv_string, uint32_t argc);
+static void join(char *argv[], char *argv_string, uint32_t argc){
+    uint32_t len;
+    for(uint32_t i = 0, n = 0; i < argc; i++, n += len){
+        sprintf(&argv_string[n], "%s ", argv[i]);
+        len = strlen(argv[i]) + 1;
+    }
+}
+
+static void parse_cli_cmd(char *str, char **argv, int *args);
+static void parse_cli_cmd(char *str, char **argv, int *argc)
 {
     char *tok; 
     int i;
+
     const char *delim = " ";
 
     tok = strtok(str, delim);
@@ -58,139 +96,129 @@ static void get_argv(char *str, char **argv, int *args)
         argv[i] = tok;
     }
 
-    *args = i;
+    *argc = i;
 }
 
-static void echo(char *rbuf)
+static void cli_demo(void);
+static void cli_demo(void) 
 {
-    printf("%s\r\n", rbuf);
-}
+    char input_buf[256];
+    char *argv[256];
+    int argc, i;
 
-static void run_memtest(char *input_argv) 
-{
-    char *argv; 
-    int args;
+    memset(input_buf, '\0', 256);
 
-    get_argv(input_argv, &argv, &args);
+    print_line("======== BEGIN BASIC SHELL ==========\r\n");
+    while (true) {
+        scan_line(input_buf);
+        parse_cli_cmd(input_buf, argv, &argc);
 
-    if (args > 1) {
-        printf("`run_memtest` should only be run with ONE argument!\r\n");
-        return;
-    }
+        // DEBUGGING
+        // debug_printf("arguments:\n");
+        // for (i = 0; i < argc; i++) {
+        //     debug_printf("%s\n", argv[i]);
+        // }
+        // debug_printf("input buf: >>%s<<\n", input_buf);
 
-    perform_array_test(SMALL_CHUMP_SIZE, atoi(&argv[0]));
-    printf("run_memtest completed...\r\n");
-}
+        if (strcmp(argv[0], "echo") == 0) {
 
-static void oncore(char *input_argv) 
-{   
-    printf("oncore excecution complete...\r\n");
-}
+            if (argc < 2) {
+                print_line("Insufficient arguments for echo command!\r\n");
+                continue;
+            }
 
-static void ps(char *input_argv)
-{
-    domainid_t *pids;
-    size_t pid_count;
-    errval_t err = aos_rpc_process_get_all_pids(&local_rpc, &pids, &pid_count);
-    if(err_is_fail(err)){
-        err_print_calltrace(err);
-        abort();
-    }
+            for (i = 1; i < argc-1; i++) {
+                print_line(argv[i]);
+                print_line(" ");
+            }
+            print_line(argv[i]);
+            print_line("\r\n");
 
-    const char *divide = "+--------------------------+\r\n";
-    printf("%s", divide);
-    printf("| Number of processes: %d |\r\n", pid_count);
-    printf("%s", divide);
-    //FIXME: some weird bug.
-    //printf("%s| Number of processes: %d |\r\n%s", divide, pid_count, divide);
-
-    for(uint32_t j = 0; j < pid_count; j++){
-        char *name_buf = (char *)malloc(20);
-        err = aos_rpc_process_get_name(&local_rpc, pids[j], &name_buf);
-        if (err_is_fail(err)) {
-            DEBUG_ERR(err, "failed to get process name\n");
-            err_print_calltrace(err);
-            abort();
         }
-        assert(name_buf != NULL);
-        printf("| %d. %-15s %d |\r\n", j, name_buf, pids[j]);
-        memset(name_buf, '\0', 20);
-    }
-    printf(divide);
-}
+        else if (strcmp(argv[0], "run_memtest") == 0) {
 
-static void clear(void)
-{
-    for (int i = 0; i < shell_height; i++) {
-        putchar(FORMFEED);
-    }
-}
+            if (argc != 2) {
+                print_line("Insufficient argument size for run_memeater command!\r\n");
+                continue;
+            }
 
-static errval_t spawn(char *argv_str, domainid_t *new_pid)
-{
-    errval_t err = aos_rpc_process_spawn(&local_rpc, argv_str, new_pid);
-    if(err_is_fail(err)){
-        err_print_calltrace(err);
-        return err;
+            print_line("Running Small Chump Memory Test...\r\n");
+            perform_array_test(SMALL_CHUMP_SIZE, atoi(argv[1]));
+            print_line("Memory Test Completed.\r\n");
+
+        }
+        else if (strcmp(argv[0], "spawn") == 0) {
+            domainid_t new_pid;
+            
+            // FIXME ugly
+            char argv_str[256];
+            memset(argv_str, '\0', 256);
+            join(&argv[1], argv_str, argc-1);
+
+            errval_t err = aos_rpc_process_spawn(&local_rpc, argv_str, &new_pid);
+            if(err_is_fail(err)){
+                err_print_calltrace(err);
+                abort();
+            }
+        } else if (strncmp(argv[0], "pstree", 6) == 0) {
+            aos_chan_send_string(&local_rpc.spawnd_lc, "pstree");
+        } else if (strncmp(argv[0], "psstack", 7) == 0) {
+            aos_chan_send_string(&local_rpc.spawnd_lc, "psstack");
+        } else if (strncmp(argv[0], "ps", 2) == 0) {
+            domainid_t *pids;
+            size_t pid_count;
+            errval_t err =
+                aos_rpc_process_get_all_pids(&local_rpc, &pids, &pid_count);
+            
+            if(err_is_fail(err)){
+                err_print_calltrace(err);
+                abort();
+            }
+            
+            char count_buf[25];
+            const char *divide = "+--------------------------+\n\r";
+            sprintf(count_buf,   "| Number of processes: %*d |\n\r",
+                3, pid_count);
+
+            print_line(divide);
+            print_line(count_buf);
+            print_line(divide);
+            
+            for(uint32_t j = 0; j < pid_count; j++){
+                char *name_buf = (char *)malloc(20);
+                aos_rpc_process_get_name(&local_rpc, pids[j], &name_buf);
+                
+                char pid_buf[32];
+                sprintf(pid_buf, "| %*d. %-15s %*d |\n\r",
+                    3, j, name_buf, 3, pids[j]);
+                print_line(pid_buf);
+            }
+            print_line(divide);
+        } else if (strcmp(argv[0], "kill") == 0) {
+            
+        } else if (strcmp(argv[0], "exit") == 0) {
+            print_line("exiting shell... goodbye\r\n");
+            print_line("======== END BASIC SHELL ========\r\n");
+            return;
+        } else {
+            print_line("unknown command. try again\r\n");
+        }
+
+        memset(input_buf, '\0', 256);
     }
-    return SYS_ERR_OK;
 }
 
 int main(int argc, char *argv[])
 {
-    char input_buf[256];
-    char *input_argv;
-    char cmd[64];
+    debug_printf("shell started\n");
+    debug_printf("%s, pid: %u\n", disp_name(), disp_get_domain_id());
 
-    errval_t err;
+    domainid_t pid;
+    aos_rpc_process_spawn(&local_rpc, "blink", &pid);
+        
+    debug_printf("Running Command Line Interface Demo...\n");
+    cli_demo();
+    debug_printf("Done\n\n");
 
-    memset(input_buf, '\0', 256);
-
-    while (true) {
-        shell_input(input_buf, 256);
-        //printf("DEBUG: %s\r\n", input_buf);
-        input_argv = headstr(input_buf, cmd, ' ');
-        //printf("DEBUG CMD: %s\r\n", cmd);
-
-        if (is_user_app(cmd)) {
-            // execute spawn user application and provide arguments.
-            domainid_t pid;
-            err = spawn(input_buf, &pid);
-            if (err_is_fail(err)) {
-                printf("Oops! Failed to spawn `%s` process\r\n", cmd);
-            } else {
-                printf("Spawned process `%s` - pid: %d\r\n", cmd, pid);
-            }
-            //printf("executing %s...\r\n", cmd);
-            continue;
-        } 
-
-        if (strcmp(cmd, "echo") == 0) {
-            echo (input_argv);
-        } else if (strcmp(cmd, "exit") == 0) {
-            printf("exiting shell... goodbye\r\n");
-            break;
-        } else if (strcmp(cmd, "run_memtest") == 0) {
-            // forks a thread and runs a memory test.
-            run_memtest(input_argv);
-        } else if (strcmp(cmd, "oncore") == 0) {
-            // eg. oncore 1 [USR_APP]
-            // eg. oncore 2 [USR_APP]
-            oncore(input_argv);
-        } else if (strcmp(cmd, "ps") == 0) {
-            ps(input_argv);
-        } else if (strcmp(cmd, "kill") == 0) {
-
-        } else if (strcmp(cmd, "list") == 0) {
-            list_app();
-        } else if (strcmp(cmd, "clear") == 0) {
-            clear();
-        } else {
-            printf("unknown command. try again\r\n");
-        }
-
-        memset(input_buf, '\0', 256);
-        memset(cmd, '\0', 64);
-    }
     return 0;
 }

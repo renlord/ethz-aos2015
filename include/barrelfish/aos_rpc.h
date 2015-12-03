@@ -25,9 +25,10 @@
 #define AOS_RPC_MSGBUF_LEN 256 
 
 enum rpc_code {
-    REQUEST_CHAN,
+    REGISTER_CHANNEL,
+    SPAWND_READY,
     SEND_TEXT,
-    REQUEST_FRAME_CAP,
+    REQUEST_RAM_CAP,
     REQUEST_DEV_CAP,
     SERIAL_PUT_CHAR,
     SERIAL_GET_CHAR,
@@ -35,6 +36,8 @@ enum rpc_code {
     PROCESS_GET_NAME,
     PROCESS_GET_NO_OF_PIDS,
     PROCESS_GET_PID,
+    PROCESS_TO_FOREGROUND,
+    PROCESS_TO_BACKGROUND,
 };
 
 enum lock_code {
@@ -47,13 +50,16 @@ enum lock_code {
 typedef uint32_t my_pid_t;
 
 struct aos_rpc {
-    struct lmp_chan lc; // lmp channel
+    struct lmp_chan init_lc;
+    struct lmp_chan spawnd_lc;
     struct capref return_cap; 
     size_t ret_bits;
     char msg_buf[AOS_RPC_MSGBUF_LEN];
     size_t char_count;
     bool wait_event;
     char process_name[20];
+    void (*recv_handler)(void *); // custom recv handler for userspace app.
+    void (*send_handler)(void *);
 }local_rpc;
 
 /**
@@ -189,6 +195,17 @@ errval_t aos_rpc_create(struct aos_rpc *chan, char *path, int *fd);
  * \arg path the file to delete
  */
 errval_t aos_rpc_delete(struct aos_rpc *chan, char *path);
+
+// TODO document
+errval_t aos_setup_channel(struct lmp_chan *lc, struct capref remote_cap,
+                           struct event_closure ec);
+
+// TODO document
+errval_t aos_retrieve_msg(struct lmp_chan *lc, struct capref *remote_cap,
+                           uint32_t *rpc_code, struct lmp_recv_msg *msg);
+                           
+// TODO document
+errval_t aos_chan_send_string(struct lmp_chan *lc, const char *string);
 
 /**
  * \brief Initialize given rpc channel.

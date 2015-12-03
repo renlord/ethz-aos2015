@@ -6,13 +6,15 @@
 -- If you do not find this file, copies can be found by writing to:
 -- ETH Zurich D-INFK, Haldeneggsteig 4, CH-8092 Zurich. Attn: Systems Group.
 --
--- Hakefile for /usr/memeater
+-- Hakefile for /usr/spawnd
 --
 --------------------------------------------------------------------------
 
-[ build application { target = "memeater",
-  		      cFiles = [ "memeater.c" ],
+[ build application { target = "spawnd",
+  		      cFiles = [ "spawnd.c" ],
                       flounderDefs = [ "mem" ],
+                      addLibraries = [ "mm", "getopt", "trace", "elf",
+                            "spawndomain", "elf" ],
                       architectures = allArchitectures
                     }
 ]

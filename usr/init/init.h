@@ -28,6 +28,15 @@
 #include <barrelfish/sys_debug.h>
 #include <omap44xx_map.h>
 #include <spawndomain/spawndomain.h>
+#include <stdlib.h>
+#include <string.h>
+#include <barrelfish/morecore.h>
+#include <barrelfish/dispatcher_arch.h>
+#include <barrelfish/debug.h>
+#include <barrelfish/lmp_chan.h>
+#include <barrelfish/aos_rpc.h>
+#include <barrelfish/sys_debug.h>
+#include <omap44xx_map.h>
 
 extern struct bootinfo *bi;
 
@@ -46,39 +55,22 @@ enum urpc_response {
 	REMOTE_SPAWN_FAIL,
 };
 
-enum ps_status {
-	PS_STATUS_RUNNING,
-	PS_STATUS_ZOMBIE,
-	PS_STATUS_SLEEP
+enum state_status {
+    ACTIVE,
+    WAITING,
+    BACKGROUND,
 };
 
 struct ps_state {
-    struct lmp_chan *lc;
+    struct ps_state *next;
+    struct lmp_chan lc;
     char mailbox[500];
     size_t char_count;
     uint32_t send_msg[9];
     struct capref send_cap;
-};
-
-struct ps_stack {
-    struct ps_stack *next;
-    struct ps_state *state;
-    // struct process *process;
-    bool background;
+    enum state_status status;
     bool pending_request;
-    char name[30];
     domainid_t pid;
-};
-
-struct ps_entry {
-	domainid_t pid;
-	enum ps_status status;
-	char *argv[MAX_CMDLINE_ARGS];
-	char *argbuf;
-	size_t argbytes;
-	struct capref rootcn_cap, dcb;
-	struct cnoderef rootcn;
-	uint8_t exitcode;
 };
 
 errval_t initialize_ram_alloc(void);

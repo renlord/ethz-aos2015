@@ -139,9 +139,15 @@ struct capref cap_initep = {
 };
 
 // CUSTOM ADDITION: Capability for Parent Endpoint
-struct capref cap_remep = {
+struct capref cap_parentep = {
     .cnode = TASK_CNODE_INIT,
-    .slot  = TASKCN_SLOT_REMEP
+    .slot  = TASKCN_SLOT_PARENTEP
+};
+
+// CUSTOM ADDITION: Capability for spawnd endpoint
+struct capref cap_spawndep = {
+    .cnode = TASK_CNODE_INIT,
+    .slot  = TASKCN_SLOT_SPAWNDEP
 };
 
 struct capref cap_urpcframe = {
