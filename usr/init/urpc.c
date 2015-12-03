@@ -1,28 +1,31 @@
 #include "init.h"
 
-static bool sync_process_wait_finish; // we use this to hold the SHELL, when a process
-							   // does not run in background.
 static coreid_t mycoreid;
 
-static void _urpc_init(struct urpc_blob *blob, uintptr_t start, size_t bufsize) 
+static bool sync_process_wait_finish; // we use this to hold the SHELL, when a process
+							   // does not run in background.
+
+static void _urpc_init(struct urpc_blob blob, enum blob_state state, 
+						uintptr_t start, coreid_t owner) 
 {
-	blob->base 		= (lvaddr_t) start;
-	blob->bufsize 	= bufsize;
-	blob->command 	= (uint32_t *) start;
-	blob->content 	= (void *) (start + 4);
+	blob.base 		= (lvaddr_t) start;
+	blob.state		= state;
+	blob.owner	 	= owner;
+
+	memcpy((void *) blob.base, &blob, sizeof(struct urpc_blob));
 }
 
-void urpc_init(uintptr_t start, size_t framesize) 
+void urpc_init(uintptr_t start, coreid_t target_core) 
 {
 	mycoreid = disp_get_core_id();
+	assert(target_core != mycoreid);
 
-	// very unscalable design, but this will have to make do for now
 	if (mycoreid == 0) {
-		_urpc_init(in, start, framesize / 2);
-		_urpc_init(out, start + 4096, framesize / 2);
+		_urpc_init(out, READ, start, mycoreid);
+		_urpc_init(in, WRITTEN, start + 4096, target_core);
 	} else {
-		_urpc_init(out, start, framesize / 2);
-		_urpc_init(in, start, framesize / 2);
+		_urpc_init(in, WRITTEN, start, target_core);
+		_urpc_init(out, READ, start, mycoreid);
 	}
 
 	sync_process_wait_finish = true;
@@ -66,7 +69,7 @@ errval_t urpc_poll(coreid_t coreid)
 	errval_t err;
 	struct urpc_inst inst;
 	while (true) {
-		err = urpc_read(in, &inst, coreid); 
+		err = urpc_read(&inst); 
 		if (err_is_fail(err)) {
 			DEBUG_ERR(err, "failed to read from urpc frame\n");
 			return err;
@@ -111,10 +114,15 @@ errval_t urpc_remote_spawn(coreid_t exec_core,
 		}
 	};
 
+	debug_printf("HELLO \n");
+	debug_printf("received appname: %s\n", appname);
+
 	memcpy(&(instr.appname), 0, 256);
 	memcpy(&(instr.appname), appname, strlen(appname));
 
-	errval_t err = urpc_write(out, &_inst, sizeof(struct urpc_spawn), exec_core);
+	debug_printf("HELLO 1\n");
+
+	errval_t err = urpc_write(&_inst);
 	if (err_is_fail(err)) {
 		DEBUG_ERR(err, "failed to write urpc frame\n");
 		return err;

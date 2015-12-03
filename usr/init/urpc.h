@@ -8,25 +8,13 @@
 #define APP_URPC_BUF 	1
 
 enum urpc_code {
+	URPC_NOP, //just for placeholder sake.
 	URPC_SPAWN,
 };
 
-// typically a command word has 32bits, where 
-// 0:4 is reserved for COMMAND STATE
-// 4:8 is reserved for owning coreid
-// 8:12 is reserved for URPC CODE
-// 12:32 is reserved for nothing
-enum command_state{
+enum blob_state {
 	WRITTEN,
 	READ
-};
-
-struct urpc_blob {
-	lvaddr_t 	base;
-	size_t		bufsize; // in bytes please.
-	size_t 		blob_size;
-	uint32_t 	*command;
-	void		*content;
 };
 
 // URPC SPAWN STRUCTURE
@@ -41,7 +29,7 @@ struct urpc_spawn {
 	enum urpc_spawn_status 		status;
 	coreid_t					exec_core;
 	domainid_t 					pid;
-	char						appname[256];
+	char						appname[256]; //app name + argv
 };
 
 // GENERIC URPC INSTRUCTION STRUCTURE
@@ -53,86 +41,108 @@ struct urpc_inst {
 	} inst;
 };
 
+struct urpc_blob {
+	lvaddr_t 			base; 
+	enum blob_state		state;
+	uint32_t			owner; 			
+	struct urpc_inst	inst;
+};
+
 // well-known blobs in the buffer
-struct urpc_blob *in;
-struct urpc_blob *out;
+struct urpc_blob in;
+struct urpc_blob out;
 
-static inline bool urpc_is_readable(struct urpc_blob *buf, coreid_t owner) 
+static inline bool urpc_check_inst_nop(struct urpc_blob *real)
 {
-	if ((*(buf->command) & WRITTEN) == WRITTEN) {
-		if ((*(buf->command) & (owner << 4)) == (owner << 4)) {
-			return true;
-		} 
-	} 
-	return false;
+	assert(real != NULL);
+	if (real->inst.code == URPC_NOP) {
+		return true;
+	} else {
+		return false;
+	}
 }
 
-static inline bool urpc_is_writable(struct urpc_blob *buf, coreid_t mycoreid) 
+static inline void set_nop_inst(struct urpc_inst *inst_slot)
 {
-	if ((*(buf->command) & READ) == READ) {
-		if ((*(buf->command) & (mycoreid << 4)) == (mycoreid << 4)) {
-			return true;
-		} 
-	} 
-	return false;
+	assert(inst_slot != NULL);
+	inst_slot->code = URPC_NOP;
 }
 
-static inline void urpc_write_to_read(struct urpc_blob *buf, coreid_t othercore)
+static inline bool urpc_is_readable(void) 
 {
-	uint32_t command = *(buf->command);
-	command &= 0xFFFFFF00;
-	command |= (othercore << 4) | READ;
+	struct urpc_blob *real = (struct urpc_blob *) in.base;
+	assert(real != NULL);
+
+	return (!urpc_check_inst_nop(real) && (real->state == WRITTEN)) ? 
+				true : false;
 }
 
-static inline void urpc_read_to_write(struct urpc_blob *buf, coreid_t mycoreid)
+static inline bool urpc_is_writable(void) 
 {
-	uint32_t command = *(buf->command);
-	command &= 0xFFFFFF00;
-	command |= (mycoreid << 4) | WRITTEN;
+	struct urpc_blob *real = (struct urpc_blob *) out.base;
+	assert(real != NULL);
+
+	return (!urpc_check_inst_nop(real) && (real->state == READ)) ? 
+				true : false;
 }
 
-static inline errval_t urpc_read(struct urpc_blob *buf, 
-								 struct urpc_inst *inst,
-								 coreid_t othercore) 
+static inline void urpc_mark_blob_read(struct urpc_blob *buf) 
 {
 	assert(buf != NULL);
 
-	while(!urpc_is_readable(buf, othercore)) {
+	struct urpc_blob *real = (struct urpc_blob *) buf->base;
+	assert(real != NULL);
+
+	real->state = READ;
+	set_nop_inst(&(real->inst));
+}
+
+static inline void urpc_mark_blob_written(struct urpc_blob *buf)
+{
+	assert(buf != NULL);
+
+	struct urpc_blob *real = (struct urpc_blob *) buf->base;
+	assert(real != NULL);
+
+	real->state = WRITTEN;
+	set_nop_inst(&(real->inst));
+}
+
+static inline errval_t urpc_read(struct urpc_inst *inst) 
+{
+	assert(inst != NULL);
+	while(!urpc_is_readable()) {
 		thread_yield();
 	}
 
-	memcpy((void *) inst, buf->content, sizeof(struct urpc_inst));
-	memcpy(buf->content, 0, buf->bufsize);
+	struct urpc_blob *real = (struct urpc_blob *) in.base;
+	assert(real != NULL); 
+
+	memcpy((void *) inst, &(real->inst), sizeof(struct urpc_inst));
 
 	//debug_printf("URPC RECEIVED: %s\n", buf->content);
 	//debug_printf("URPC READ: %s\n", msg);
-	urpc_write_to_read(buf, othercore);
+	urpc_mark_blob_read(real);
 	return SYS_ERR_OK;
 }
 
-static inline errval_t urpc_write(struct urpc_blob *buf, 
-								  struct urpc_inst *inst, 
-								  size_t write_size, 
-								  coreid_t mycoreid) 
+static inline errval_t urpc_write(struct urpc_inst *inst) 
 {
-	assert(buf != NULL);
-
-	if (write_size > buf->bufsize) {
-		return URPC_ERR_BUF_LEN_EXCEEDED;
-	}
-	debug_printf("hello\n");
-	while(!urpc_is_writable(out, mycoreid)) {
+	assert(inst != NULL);
+	while(!urpc_is_writable()) {
 		thread_yield();
 	}
-	debug_printf("hello2\n");
 
-	memcpy(buf->content, inst, write_size);
+	struct urpc_blob *real = (struct urpc_blob *) out.base;
+	assert(real != NULL);
 
-	urpc_read_to_write(buf, mycoreid);
+	memcpy((void *) &(real->inst), inst, sizeof(struct urpc_inst));
+
+	urpc_mark_blob_written(real);
 	return SYS_ERR_OK;
 }
 
-void urpc_init(uintptr_t start, size_t framesize);
+void urpc_init(uintptr_t start, coreid_t target_core);
 errval_t urpc_poll(coreid_t coreid);
 errval_t urpc_remote_spawn(coreid_t exec_core, char *appname, domainid_t pid, 
 						   bool background, enum urpc_spawn_status status);
