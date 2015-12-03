@@ -28,7 +28,7 @@ enum rpc_code {
     REGISTER_CHANNEL,
     SPAWND_READY,
     SEND_TEXT,
-    REQUEST_FRAME_CAP,
+    REQUEST_RAM_CAP,
     REQUEST_DEV_CAP,
     SERIAL_PUT_CHAR,
     SERIAL_GET_CHAR,
@@ -36,11 +36,8 @@ enum rpc_code {
     PROCESS_GET_NAME,
     PROCESS_GET_NO_OF_PIDS,
     PROCESS_GET_PID,
-    REQUEST_SPAWND_EP,
-    // SPAWND_PROCESS_SPAWN,
-    // SPAWND_GET_NAME,
-    // SPAWND_GET_NO_OF_PIDS,
-    // SPAWND_GET_PID
+    PROCESS_TO_FOREGROUND,
+    PROCESS_TO_BACKGROUND,
 };
 
 enum lock_code {
@@ -203,6 +200,13 @@ errval_t aos_rpc_delete(struct aos_rpc *chan, char *path);
 // TODO document
 errval_t aos_setup_channel(struct lmp_chan *lc, struct capref remote_cap,
                            struct event_closure ec);
+
+// TODO document
+errval_t aos_retrieve_msg(struct lmp_chan *lc, struct capref *remote_cap,
+                           uint32_t *rpc_code, struct lmp_recv_msg *msg);
+                           
+// TODO document
+errval_t aos_chan_send_string(struct lmp_chan *lc, const char *string);
 
 /**
  * \brief Initialize given rpc channel.

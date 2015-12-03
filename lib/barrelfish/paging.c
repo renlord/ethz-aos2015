@@ -573,9 +573,8 @@ void page_fault_handler(enum exception_type type, int subtype,
     }
 
     if (ret_size != req_size){
-        debug_printf("Tried to allocate %d bytes for addr 0x%08x\
-            but could only allocate %d.\n",
-                     req_size, addr, ret_size);
+        debug_printf("Tried to allocate %d bytes for addr 0x%08x but"
+                     " could only allocate %d.\n", req_size, addr, ret_size);
         abort();
     }
     

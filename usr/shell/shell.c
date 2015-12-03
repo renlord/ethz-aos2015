@@ -131,7 +131,6 @@ static void scan_line(char *buf)
     print_line("cli-demo-shell$ ");
 
     while (i < 256) {
-
         errval_t err = aos_rpc_serial_getchar(&local_rpc, &c);
         if (err_is_fail(err)) {
             debug_printf("userland scan_line fail! %s\n", err_getstring(err));
@@ -261,6 +260,10 @@ static void cli_demo(void)
                 err_print_calltrace(err);
                 abort();
             }
+        } else if (strncmp(argv[0], "pstree", 6) == 0) {
+            aos_chan_send_string(&local_rpc.spawnd_lc, "pstree");
+        } else if (strncmp(argv[0], "psstack", 7) == 0) {
+            aos_chan_send_string(&local_rpc.spawnd_lc, "psstack");
         } else if (strncmp(argv[0], "ps", 2) == 0) {
             domainid_t *pids;
             size_t pid_count;
@@ -280,7 +283,6 @@ static void cli_demo(void)
             print_line(divide);
             print_line(count_buf);
             print_line(divide);
-
             
             for(uint32_t j = 0; j < pid_count; j++){
                 char *name_buf = (char *)malloc(20);
@@ -308,11 +310,12 @@ static void cli_demo(void)
 
 int main(int argc, char *argv[])
 {
-    debug_printf("memeater started\n");
+    debug_printf("shell started\n");
     debug_printf("%s, pid: %u\n", disp_name(), disp_get_domain_id());
     
-    // domainid_t pid;
-    // aos_rpc_process_spawn(&local_rpc, "blink 1 100 &", &pid);
+    domainid_t pid;
+    aos_rpc_process_spawn(&local_rpc, "blink &", &pid);
+    
     debug_printf("Running Command Line Interface Demo...\n");
     cli_demo();
     debug_printf("Done\n\n");

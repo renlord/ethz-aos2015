@@ -31,150 +31,47 @@
 static coreid_t my_core_id;
 static lvaddr_t spawnd_bi_addr;
 
-// static struct process *fst_process;
-static struct ps_stack *ps_stack;
-static struct proc_state *fst_state;
-static struct proc_state spawnd_state;
-    
+static struct ps_state *ps_states;
+
 static volatile uint32_t *uart3_thr = NULL;
 static volatile uint32_t *uart3_rhr = NULL;
 static volatile uint32_t *uart3_fcr = NULL;
 static volatile uint32_t *uart3_lsr = NULL;
 
-static errval_t reply_string(struct lmp_chan *lc, const char *string);
-// static struct process *register_process(struct spawninfo *si, const char *name);
-
 struct bootinfo *bi;
 struct capref cap_spawndep;
+struct lmp_chan main_channel;
+struct ps_state spawnd_state;
 
-struct foreground_proc { 
-    struct ps_entry *cur_ps;
-    struct proc_state *cur_cs;
-} foreground;
-
-enum state_type {
+enum state_status {
     ACTIVE,
     WAITING,
     BACKGROUND,
 };
 
-struct proc_state {
-    struct proc_state *next;
+struct ps_state {
+    struct ps_state *next;
     struct lmp_chan lc;
     char mailbox[500];
     size_t char_count;
     uint32_t send_msg[9];
     struct capref send_cap;
-    enum state_type type;
+    enum state_status status;
     bool pending_request;
-};
-
-struct ps_stack { //propose rename to foreground stack;
-    struct ps_stack *next;
-    struct proc_state *state;
-    // struct process *process;
-    bool background;
-    bool pending_request;
-    char name[30];
     domainid_t pid;
 };
 
-// struct process {
-//     domainid_t pid;
-//     char name[30];
-//     struct process *next;
-// };
-
 struct serial_write_lock {
     bool lock;
-    struct proc_state *cli;
+    struct ps_state *cli;
 };
 
 struct serial_read_lock {
     bool lock;
-    struct proc_state *cli;
+    struct ps_state *cli;
 };
 
-// static struct proc_state spawnd_cs; //ONLY 1 `spawnd` service may be spawned.
 
-static void stack_push(struct ps_stack *top);
-static void stack_push(struct ps_stack *top)
-{
-    top->next = ps_stack;
-    ps_stack = top;
-    return;
-}
-
-static void stack_insert_bottom(struct ps_stack *bottom);
-static void stack_insert_bottom(struct ps_stack *bottom)
-{
-    struct ps_stack *elm = ps_stack;
-    while(elm->next != NULL){
-        elm = elm->next;
-    }
-    elm->next = bottom;
-    bottom->next = NULL;
-
-    return;
-}
-
-static struct ps_stack *stack_pop(void);
-static struct ps_stack *stack_pop(void)
-{
-    struct ps_stack *top = ps_stack;
-    ps_stack = top->next;
-    return top;
-}
-
-static void debug_print_stack(void);
-static void debug_print_stack(void)
-{
-    debug_printf("PROCESS STACK:\n");
-    struct ps_stack *cur = ps_stack;
-    while(cur != NULL){
-        debug_printf("%s\n", cur->name);
-        cur = cur->next;
-    }
-    debug_printf("DONE\n");
-}
-
-// static void stack_remove_state(struct proc_state *proc);
-// static void stack_remove_state(struct proc_state *proc)
-// {
-//     if(proc == ps_stack->state){
-//         stack_pop();
-//         return;
-//     }
-//
-//     struct ps_stack *elm = ps_stack;
-//     while(elm->next != NULL && elm->next->state != proc){
-//         elm = elm->next;
-//     }
-//
-//     if(elm->next->state == proc){
-//         elm->next = elm->next->next;
-//     }
-//
-// }
-
-// static void deregister_process(struct process *process);
-// static void deregister_process(struct process *process)
-// {
-//     if(process == fst_process){
-//         assert(fst_process->next != NULL);
-//         fst_process = fst_process->next;
-//         return;
-//     }
-//
-//     struct process *elm = fst_process;
-//     while(elm->next != NULL && elm->next != process){
-//         elm = elm->next;
-//     }
-//
-//     if(elm->next == process){
-//         elm->next = elm->next->next;
-//     }
-// }
 
 errval_t serial_put_char(const char *c) 
 {
@@ -197,7 +94,7 @@ errval_t serial_get_char(char *c)
 
 void send_handler(void *proc_in)
 {
-    struct proc_state *proc = (struct proc_state*)proc_in;
+    struct ps_state *proc = (struct ps_state*)proc_in;
     
     uint32_t buf[9];
     for (uint8_t i = 0; i < 9; i++){
@@ -226,56 +123,106 @@ void send_handler(void *proc_in)
     }
 }
 
+static errval_t get_ram_cap(struct ps_state *ps_state, size_t req_bits)
+{
+    struct capref dest = NULL_CAP;
+    
+    // Perform the allocation
+    errval_t err = ram_alloc(&dest, req_bits);
+    if (err_is_fail(err)){
+        debug_printf("Could not allocate ram.\n");
+        err_print_calltrace(err);
+        return err;
+    }
+    
+    // Send cap and return bits back to caller
+    ps_state->send_msg[0] = REQUEST_RAM_CAP;
+    ps_state->send_msg[1] = req_bits;
+    ps_state->send_cap = dest;
+
+    return err;
+}
+
+static struct ps_state *create_ps_state(void)
+{
+    struct ps_state **cur = &ps_states;
+    while (*cur != NULL){
+        *cur = (*cur)->next;
+    }
+    *cur = (struct ps_state*)malloc(sizeof(struct ps_state));
+    (*cur)->next = NULL;
+    (*cur)->char_count = 0;
+    (*cur)->send_cap = NULL_CAP;
+    (*cur)->pending_request = false;
+    (*cur)->status = WAITING;
+    return *cur;
+}
+
+static struct ps_state *get_ps_state_by_pid(domainid_t pid)
+{
+    struct ps_state *cur = ps_states;
+    while (cur != NULL && cur->pid != pid) {
+        cur = cur->next;
+    }
+    if (cur == NULL){
+        cur = create_ps_state();
+        cur->pid = pid;
+    }
+    
+    return cur;
+}
+
+static void set_active_ps_to_waiting(void)
+{
+    struct ps_state *cur = ps_states;
+    while (cur != NULL) {
+        if(cur->status == ACTIVE){
+            cur->status = WAITING;
+            break;
+        }
+        cur = cur->next;
+    }
+    
+    if (cur == NULL){
+        assert("No active process??");
+    }
+}
+
+
 static void spawnd_recv_handler(void *lc_in)
 {
     assert(lc_in == &spawnd_state.lc);
     
-    struct capref remote_cap = NULL_CAP;
+    struct capref remote_cap;
     struct lmp_recv_msg msg = LMP_RECV_MSG_INIT;
-    errval_t err = lmp_chan_recv(&spawnd_state.lc, &msg, &remote_cap);
+    uint32_t rpc_code;
     
+    errval_t err = aos_retrieve_msg(&spawnd_state.lc, &remote_cap,
+                                    &rpc_code, &msg);
     if (err_is_fail(err)) {
-        debug_printf("Could not receive msg from spawnd: %s\n",
+        debug_printf("Could not retrieve msg on main channel\n");
+        err_print_calltrace(err);
+        abort();
+    }
+    err = lmp_chan_register_recv(&spawnd_state.lc, get_default_waitset(),
+        MKCLOSURE(spawnd_recv_handler, &spawnd_state.lc));
+    if(err_is_fail(err)){
+        debug_printf("Could not re-register for spawnd_recv_handler: %s\n",
             err_getstring(err));
         err_print_calltrace(err);
-        spawnd_state.lc.remote_cap = NULL_CAP;
-        return;
-    }
-
-    if (msg.buf.msglen == 0){
-        debug_printf("Bad msg from spawnd.\n");
-        spawnd_state.lc.remote_cap = NULL_CAP;
-        return;
+        abort();
     }
     
-    lmp_chan_register_recv(&spawnd_state.lc, get_default_waitset(),
-        MKCLOSURE(spawnd_recv_handler, lc_in));
-    
-    // Re-allocate
-    if (!capref_is_null(remote_cap)){
-        err = lmp_chan_alloc_recv_slot(&spawnd_state.lc);
-        if (err_is_fail(err)){
-            debug_printf("Could not allocate receive slot: %s.\n",
-                err_getstring(err));
-            err_print_calltrace(err);
-            return;
-        }
-    }
-    
-    uint32_t code = msg.buf.words[0];
-    
-    switch(code){
+    switch(rpc_code){
         case REGISTER_CHANNEL:
         {
             debug_printf("received ep cap from spawnd.\n");
             spawnd_state.lc.remote_cap = remote_cap;
-            
             break;
         }
         case SPAWND_READY:
         {
             debug_printf("received ready signal from spawnd.\n");
-            
             
             err = lmp_chan_send2(&spawnd_state.lc, LMP_SEND_FLAGS_DEFAULT,
                                  NULL_CAP, SPAWND_READY, spawnd_bi_addr);
@@ -286,7 +233,7 @@ static void spawnd_recv_handler(void *lc_in)
                 abort();
             }
             
-            reply_string(&spawnd_state.lc, "shell");
+            aos_chan_send_string(&spawnd_state.lc, "shell");
             lmp_chan_send1(&spawnd_state.lc, LMP_SEND_FLAGS_DEFAULT,
                            NULL_CAP, PROCESS_SPAWN);
             if(err_is_fail(err)){
@@ -296,27 +243,19 @@ static void spawnd_recv_handler(void *lc_in)
             }
             break;
         }
+        
         // Returns a frame capability to the client
-        case REQUEST_FRAME_CAP:
+        case REQUEST_RAM_CAP:
         {
-            size_t req_bits = msg.buf.words[1];
-            struct capref dest = NULL_CAP;
-            
-            // Perform the allocation
-            err = ram_alloc(&dest, req_bits);
+            err = get_ram_cap(&spawnd_state, msg.words[0]);
             if (err_is_fail(err)){
-                debug_printf("Could not allocate ram.\n");
+                debug_printf("Could not allocate ram for spawnd.\n");
                 err_print_calltrace(err);
                 abort();
             }
             
-            // Send cap and return bits back to caller
-            spawnd_state.send_msg[0] = REQUEST_FRAME_CAP;
-            spawnd_state.send_msg[1] = req_bits;
-            spawnd_state.send_cap = dest;
-            
-            err = lmp_chan_register_send(&spawnd_state.lc, get_default_waitset(),
-                                         MKCLOSURE(send_handler, &spawnd_state));
+            err = lmp_chan_register_send(&spawnd_state.lc,
+                get_default_waitset(), MKCLOSURE(send_handler, &spawnd_state));
             if (err_is_fail(err)) {
                 err_print_calltrace(err);
                 abort();
@@ -325,231 +264,82 @@ static void spawnd_recv_handler(void *lc_in)
             break;
         }
         
-        default:{}
+        case PROCESS_TO_FOREGROUND:
+        {
+            struct ps_state *state =
+                    get_ps_state_by_pid(msg.words[0]);
+            set_active_ps_to_waiting();
+            state->status = ACTIVE;
+            if (state->pending_request) {
+                debug_printf("Sending delayed msg\n");
+                send_handler(state);
+            }
+            break;
+        }
+        
+        case PROCESS_TO_BACKGROUND:
+        {
+            debug_printf("process to background called\n");
+            struct ps_state *state =
+                    get_ps_state_by_pid(msg.words[0]);
+            state->status = BACKGROUND;
+            break;
+        }
+        
+        default:
+        {
+            debug_printf("Could not handle rpc code %d in "
+                         "spawnd_recv_handler\n", rpc_code);
+        }
     }
-    
-    
-    return;
 }
 
 
-void recv_handler(void *lc_in)
+static void default_recv_handler(void *ps_state_in)
 {
-    assert(fst_state != NULL);
-    struct capref remote_cap = NULL_CAP;
-    struct lmp_chan *lc = (struct lmp_chan *)lc_in;
-    
-    // Find the state for the requesting client
-    struct proc_state *proc = fst_state;
-    while (proc != NULL && &proc->lc != lc){
-         proc = proc->next;
-    }
-    
-    // If we haven't seen the process before, it should be requesting a channel
-    if (proc == NULL){
-        proc = fst_state;
-    }
-    
-    // Retrieve message
+    errval_t err;
+    struct capref remote_cap;
     struct lmp_recv_msg msg = LMP_RECV_MSG_INIT;
-    errval_t err = lmp_chan_recv(lc, &msg, &remote_cap);
+    uint32_t rpc_code;
 
-    if (err_is_fail(err)) {
-        debug_printf("Could not retrieve message: %s.\n",
-            err_getstring(err));
-        err_print_calltrace(err);
-        return;
-    }
+    struct ps_state *ps_state = (struct ps_state *)ps_state_in;
+    err = aos_retrieve_msg(&ps_state->lc, &remote_cap, &rpc_code, &msg);
     
     // Re-register
-    // FIXME perhaps split up for spawnd/not spawnd
-    lmp_chan_register_recv(lc, get_default_waitset(),
-        MKCLOSURE(recv_handler, lc_in));
-    
-    uint32_t code = msg.buf.words[0];
-    
-    assert(proc != NULL || code == REGISTER_CHANNEL);
-    
-    bool postpone = false;
-        
-    // if (proc != NULL){
-    //     assert(elm != NULL);
-    //
-    //     // If process is not on top of stack and not running
-    //     // in background, we postpone
-    //     postpone = (elm != ps_stack && !elm->background);
-    //
-    //     // Preparation
-    //     for (uint32_t i = 1; i < LMP_MSG_LENGTH; i++){
-    //         proc->send_msg[i] = 0;
-    //     }
-    //     proc->send_cap = NULL_CAP;
-    // }
-    
-    if (proc != NULL) {
-        proc->send_msg[0] = code;
-    }
+    lmp_chan_register_recv(&ps_state->lc, get_default_waitset(),
+        MKCLOSURE(default_recv_handler, ps_state));
     
     bool reply = false;
 
-    switch(code) {
-        
-        // Initial request from new clients, causes init to establish
-        // a new channel for future communication
-        case REGISTER_CHANNEL:
-        {
-            debug_printf("REGISTER_CHANNEL not handled!\n");
-            break;
-            
-            if (capref_is_null(remote_cap)) {
-                debug_printf("Received endpoint cap was null.\n");
-                return;
-            }
-            
-            // Create new endpoint and channel, and initialize
-            struct capref ep_cap;
-            struct lmp_endpoint *my_ep; 
-            err = endpoint_create(FIRSTEP_BUFLEN, &ep_cap, &my_ep);
-            if (err_is_fail(err)) {
-                debug_printf("Failed to create endpoint.\n");
-                err_print_calltrace(err);
-                return;
-            }
-            debug_printf("REGISTER_CHANNEL clause 2\n");
-            
-            // bootstrap new LMP channel
-            proc->lc.local_cap = ep_cap;
-            proc->lc.remote_cap = remote_cap;
-            proc->lc.endpoint = my_ep;
-
-            debug_printf("REGISTER_CHANNEL clause 3\n");
-            err = lmp_chan_alloc_recv_slot(&proc->lc);
-            if (err_is_fail(err)) {
-                debug_printf("Could not allocate receive slot!\n");
-                err_print_calltrace(err);
-                return;
-            }
-
-            debug_printf("REGISTER_CHANNEL clause 4\n");
-            // Register receive handler to this channel
-            err = lmp_chan_register_recv(&proc->lc, get_default_waitset(),
-                MKCLOSURE(recv_handler, &proc->lc));
-            if (err_is_fail(err)) {
-                debug_printf("Could not register receive handler\n");
-                err_print_calltrace(err);
-                return;
-            }
-            
-            // initialize process state
-            debug_printf("REGISTER_CHANNEL clause 5\n");
-            proc = fst_state;
-
-            // Send new endpoint cap back to client
-            debug_printf("REGISTER_CHANNEL clause 7\n");
-            proc->send_msg[0] = REGISTER_CHANNEL;
-            proc->send_cap = ep_cap;
-            reply = true;
-
-            // Allocate receive struct right away for next msg
-            debug_printf("REGISTER_CHANNEL clause 8\n");
-            err = lmp_chan_alloc_recv_slot(&proc->lc);
-            if (err_is_fail(err)) {
-                debug_printf("Could not allocate recv slot: %s.\n",
-                    err_getstring(err));
-                err_print_calltrace(err);
-                return;
-            }
-    
-            break;
-        }
+    switch(rpc_code) {
         
         case SEND_TEXT:
         {
-
-            for(uint8_t i = 1; i < 9; i++){
-                 proc->mailbox[proc->char_count] = msg.buf.words[i];
-                 proc->char_count++;
+            for(uint8_t i = 0; i < 8; i++){
+                 ps_state->mailbox[ps_state->char_count] = msg.buf.words[i];
+                 ps_state->char_count++;
                  
                  if (msg.buf.words[i] == '\0') {
-                    proc->char_count = 0;
-                    
-                    // TODO actually handle receiving a msg
+                    ps_state->char_count = 0;
                     break;
                 }
             }
-            
-            if (strncmp(proc->mailbox, "ping", 4) == 0){
-
-                proc->send_msg[0] = SEND_TEXT;
-                for (uint32_t i = 0; i < 7; i++){
-                    proc->send_msg[i+1] = (uint32_t)proc->mailbox[i];
-                    if(proc->mailbox[i] == '\0'){
-                        break;
-                    }
-                }
-                
-                reply = true;
-                proc->send_msg[0] = SEND_TEXT;
-                proc->send_msg[1] = (uint32_t)'p';
-                proc->send_msg[2] = (uint32_t)'o';
-                proc->send_msg[3] = (uint32_t)'n';
-                proc->send_msg[4] = (uint32_t)'g';
-                proc->send_cap = NULL_CAP;
-            }
-
-            // if (strncmp(proc->mailbox, "bye", 3) == 0) {
-            //     bool is_top = (elm == ps_stack);
-            //     // void *x = deregister_process;
-            //     // x=x;
-            //     // stack_remove_state(proc);
-            //     if(is_top){
-            //         // debug_print_stack();
-            //         // deregister_process(elm->process);
-            //         stack_pop();
-            //         // debug_print_stack();
-            //         // if(ps_stack->pending_request){
-            //             debug_printf("Next process should run now\n");
-            //             elm = ps_stack;
-            //             proc = elm->state;
-            //             reply = true;
-            //         // } else {
-            //         //     debug_printf("Not top\n");
-            //         //     return;
-            //         // }
-            //     }
-            // }
+            break;
         }
-        break;
         
-        // Returns a frame capability to the client
-        case REQUEST_FRAME_CAP:
+        // Returns a RAM capability to the client
+        case REQUEST_RAM_CAP:
         {
-            size_t req_bits = msg.buf.words[1];
-            size_t req_bytes = (1UL << req_bits);
-            struct capref dest = NULL_CAP;
-            
-            // Perform the allocation
-            size_t ret_bytes;
-            err = frame_alloc(&dest, req_bytes, &ret_bytes);
-            if (err_is_fail(err)){
-                debug_printf("Failed memserv allocation.\n");
-                err_print_calltrace(err);
-            }
-            
-            // Send cap and return bits back to caller
-            proc->send_msg[0] = REQUEST_FRAME_CAP;
-            proc->send_msg[1] = log2ceil(ret_bytes);
-            proc->send_cap = dest;
-            reply = true;
-            
+            err = get_ram_cap(ps_state, msg.words[0]);
+            reply = true;            
             break;
         }
         
         case REQUEST_DEV_CAP:
         {
             debug_printf("handing out REQUEST_DEV_CAP\n");
-            proc->send_msg[0] = REQUEST_DEV_CAP;
-            proc->send_cap = cap_io;
+            ps_state->send_msg[0] = REQUEST_DEV_CAP;
+            ps_state->send_cap = cap_io;
             reply = true;
             
             break;
@@ -557,8 +347,8 @@ void recv_handler(void *lc_in)
 
         case SERIAL_PUT_CHAR:
         {
-            if (proc == ps_stack->state) {
-                serial_put_char((char *) &msg.buf.words[1]);
+            if (ps_state->status == ACTIVE) {
+                serial_put_char((char *) &msg.buf.words[0]);
             }
             
             break;
@@ -566,175 +356,36 @@ void recv_handler(void *lc_in)
 
         case SERIAL_GET_CHAR:
         {
-            if (proc == ps_stack->state) {
-                char c;
-                serial_get_char(&c);
-                
-                proc->send_msg[0] = SERIAL_GET_CHAR;
-                proc->send_msg[1] = c;
-                proc->send_cap = NULL_CAP;
-                reply = true;
+            if (ps_state->status == BACKGROUND) {
+                break;
             }
+            
+            char c;
+            serial_get_char(&c);
+            
+            ps_state->send_msg[0] = SERIAL_GET_CHAR;
+            ps_state->send_msg[1] = c;
+            ps_state->send_cap = NULL_CAP;
+            reply = true;
             
             break;
         }
-
-        case PROCESS_SPAWN:
-        {
-            // // 1. client sends name of application to proc->mailbox via
-            // // SEND_TEXT.
-            //
-            // // 2. client indicates that name transfer is complete, we check
-            // // mailbox for the name of the application.
-            // char *app_name = proc->mailbox;
-            // bool background = msg.buf.words[1];
-            // //debug_printf("received app name: %s\n", app_name);
-            //
-            // // sanity checks
-            // assert(app_name != NULL);
-            // assert(strlen(app_name) > 1);
-            //
-            // // tell spawnd to spawn application
-            // err = reply_string(spawnd_cs.lc, app_name);
-            // if (err_is_fail(err)) {
-            //     DEBUG_ERR(err, "failed to send app name to spawnd\n");
-            //     abort();
-            // }
-            //
-            // err = lmp_chan_send2(spawnd_cs.lc, LMP_SEND_FLAGS_DEFAULT,
-            //                      NULL_CAP, SPAWND_PROCESS_SPAWN, background);
-            // if (err_is_fail(err)) {
-            //     DEBUG_ERR(err, "failed to send app statuses to spawnd\n");
-            //     abort();
-            // }
-            // // reset mailbox
-            // memset(proc->mailbox, '\0', 500);
-            // proc->char_count = 0;
-            break;
-        }
-
-        // case SPAWND_PROCESS_SPAWN:
-        // {
-        //     // we always assume foreground shell is the one that spawned child
-        //     // processes.
-        //     foreground.cur_cs->send_msg[0] = PROCESS_SPAWN;
-        //     foreground.cur_cs->send_cap = NULL_CAP;
-        //     reply = true;
-        //     if (err_is_fail(err)) {
-        //         foreground.cur_cs->send_msg[1] = false;
-        //         foreground.cur_cs->send_msg[2] = '\0';
-        //         DEBUG_ERR(err, "failed to spawn process from SHELL.\n");
-        //     } else {
-        //         foreground.cur_cs->send_msg[1] = true;
-        //         foreground.cur_cs->send_msg[2] = msg.buf.words[1];
-        //         foreground.cur_cs->send_msg[3] = '\0';
-        //     }
-        //     break;
-        // }
-
-        case PROCESS_GET_NAME: 
-        {
-            // domainid_t pid = (domainid_t) msg.buf.words[1];
-            // err = lmp_chan_send2(spawnd_cs.lc, LMP_SEND_FLAGS_DEFAULT,
-            //                      NULL_CAP, SPAWND_GET_NAME, pid);
-            // if (err_is_fail(err)) {
-            //     DEBUG_ERR(err, "failed to send get name req. to spawnd\n");
-            //     abort();
-            // }
-            //
-            break;
-        }
-
-        // case SPAWND_GET_NAME:
-        // {
-        //     const char *name = spawnd_cs.mailbox;
-        //     memset(spawnd_cs.mailbox, '\0', 500);
-        //
-        //     err = reply_string(foreground.cur_cs->lc, name);
-        //     if (err_is_fail(err)) {
-        //         DEBUG_ERR(err, "failed to reply PROCESS_GET_NAME event.\n");
-        //         err_print_calltrace(err);
-        //         return;
-        //     }
-        //
-        //     err = lmp_chan_send1(foreground.cur_cs->lc, LMP_SEND_FLAGS_DEFAULT,
-        //                          NULL_CAP, PROCESS_GET_NAME);
-        //     if (err_is_fail(err)) {
-        //         DEBUG_ERR(err, "failed to reply PROCESS_GET_NAME event.\n");
-        //         err_print_calltrace(err);
-        //         abort();
-        //     }
-        //
-        //     break;
-        // }
-
-        case PROCESS_GET_NO_OF_PIDS:
-        {
-            // err = lmp_chan_send1(spawnd_cs.lc, LMP_SEND_FLAGS_DEFAULT,
-            //                      NULL_CAP, SPAWND_GET_NO_OF_PIDS);
-            // if (err_is_fail(err)) {
-            //     DEBUG_ERR(err, "failed to send get pid nos. req.\n");
-            // }
-            break;
-        }
-
-        // case SPAWND_GET_NO_OF_PIDS:
-        // {
-        //     reply = true;
-        //     foreground.cur_cs->send_msg[0] = PROCESS_GET_NO_OF_PIDS;
-        //     foreground.cur_cs->send_msg[1] = msg.buf.words[1];
-        //     foreground.cur_cs->send_msg[2] = '\0';
-        //     foreground.cur_cs->send_cap = NULL_CAP;
-        //     break;
-        // }
         
-        case PROCESS_GET_PID:
-        {
-            // uint32_t idx = msg.buf.words[1];
-            //
-            // err = lmp_chan_send2(foreground.cur_cs->lc, LMP_SEND_FLAGS_DEFAULT,
-            //                      NULL_CAP, SPAWND_GET_PID, idx);
-            // if (err_is_fail(err)) {
-            //     DEBUG_ERR(err, "failed to send SPAWND_GET_PID event.\n");
-            //     err_print_calltrace(err);
-            //     abort();
-            // }
-            //
-            break;
-        }
-
-        // case SPAWND_GET_PID:
-        // {
-        //     reply = true;
-        //     foreground.cur_cs->send_msg[0] = PROCESS_GET_PID;
-        //     foreground.cur_cs->send_msg[1] = msg.buf.words[1];
-        //     foreground.cur_cs->send_msg[2] = '\0';
-        //     foreground.cur_cs->send_cap = NULL_CAP;
-        //
-        //     break;
-        // }
-        
-        case REQUEST_SPAWND_EP:
-        {
-            debug_printf("sent spawnd_ep");
-            reply = true;
-            proc->send_msg[0] = REQUEST_SPAWND_EP;
-            proc->send_cap = cap_spawndep;
-        }
         default:
         {
-            // include LIB_ERR_NOT_IMPLEMENTED? 
-            debug_printf("Wrong code: %d\n", code);
+            debug_printf("Could not handle code %d in "
+                         "default_recv_handler\n", rpc_code);
+            return;
         }
     }
     
     if(reply){
-        if (postpone){
-            proc->pending_request = true;
+        if (ps_state->status == WAITING){
+            ps_state->pending_request = true;
         } else {
             for(uint32_t i = 0; i < RETRYS; i++){
-                err = lmp_chan_register_send(lc_in, get_default_waitset(),
-                                             MKCLOSURE(send_handler, proc));
+                err = lmp_chan_register_send(&ps_state->lc, get_default_waitset(),
+                    MKCLOSURE(send_handler, ps_state));
                 if (err_is_ok(err)) {
                     break;
                 }
@@ -743,13 +394,51 @@ void recv_handler(void *lc_in)
             
             if(err_is_fail(err)){
                 // TODO kill proc
-                stack_pop();
-            }            
+                return;
+            }     
         }
     } else {
-        proc->pending_request = false;
+        ps_state->pending_request = false;
     }
 }
+
+static void initial_recv_handler(void *null_ptr)
+{
+    assert(null_ptr == NULL);
+    
+    struct capref remote_cap;
+    struct lmp_recv_msg msg = LMP_RECV_MSG_INIT;
+    uint32_t rpc_code;
+    
+    errval_t err = aos_retrieve_msg(&main_channel, &remote_cap,
+                                    &rpc_code, &msg);
+    if (err_is_fail(err)) {
+        debug_printf("Could not retrieve msg on main channel\n");
+        err_print_calltrace(err);
+        abort();
+    }
+    
+    assert(rpc_code == REGISTER_CHANNEL); // FIXME handle gracefully
+
+    struct ps_state *new_state = get_ps_state_by_pid(msg.words[0]);
+    err = aos_setup_channel(&new_state->lc, remote_cap,
+        MKCLOSURE(default_recv_handler, new_state));
+
+    new_state->send_msg[0] = REGISTER_CHANNEL;
+    new_state->send_cap = new_state->lc.local_cap;
+    send_handler(new_state);
+    
+    // re-register receive handler
+    err = lmp_chan_register_recv(&main_channel, get_default_waitset(),
+        MKCLOSURE(initial_recv_handler, NULL));
+    if (err_is_fail(err)){
+        printf("Could not register receive handler!\n");
+        abort();
+    }
+    
+    return;
+}
+
 
 void set_uart3_registers(lvaddr_t base)
 {
@@ -799,7 +488,7 @@ errval_t spawn_spawnd(void)
     debug_printf("ram alloc state: 0x%08x\n", get_ram_alloc_state());
     
     spawnd_state.next = NULL; // FIXME ??
-    spawnd_state.type = BACKGROUND;
+    spawnd_state.status = BACKGROUND;
         
     // Parse cmd line args
     debug_printf("setting argv[0]\n");
@@ -834,20 +523,7 @@ errval_t spawn_spawnd(void)
     } else {
         debug_printf("Spawn succesful.\n");
     }
-    
-    
-    // Copy Parent Process's EP to Spawned Process' CSpace
-    assert(!capref_is_null(cap_selfep)); // TODO change to parents
-    struct capref cap_parent_dest = {
-        .cnode = si.taskcn,
-        .slot = TASKCN_SLOT_PARENTEP
-    };
-    err = cap_copy(cap_parent_dest, cap_selfep);
-    if (err_is_fail(err)) {
-        DEBUG_ERR(err, "failed to copy rem ep to new process' cspace\n");
-        return err;
-    }
-    
+        
     struct capref spawnd_selfep = {
         .cnode = si.taskcn,
         .slot = TASKCN_SLOT_SELFEP
@@ -865,10 +541,20 @@ errval_t spawn_spawnd(void)
     
     err = cap_copy(spawnd_initep, spawnd_state.lc.local_cap);
     if (err_is_fail(err)) {
-        DEBUG_ERR(err, "failed to copy init ep to new process' cspace\n");
+        DEBUG_ERR(err, "Failed to copy EP for spawnd<->init "
+                        "communication to new process' cspace\n");
         return err;
     }
     
+    // Copy init's endpoint for spawnd to handout to new processes
+    spawnd_initep.cnode = si.taskcn;
+    spawnd_initep.slot = TASKCN_SLOT_SPAWNDEP;
+    err = cap_copy(spawnd_initep, cap_initep);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "Failed to copy EP for process<->init "
+                       "communication to new process' cspace\n");
+        return err;
+    }
     
     struct capref module_cap_init = {
         .cnode = cnode_root,
@@ -880,7 +566,6 @@ errval_t spawn_spawnd(void)
         .slot = ROOTCN_SLOT_MODULECN,
     };
     
-    // slot_alloc(&capcopy);
     err = cap_copy(module_cap_spawnd, module_cap_init);
     if (err_is_fail(err)){
         err_print_calltrace(err);
@@ -890,12 +575,10 @@ errval_t spawn_spawnd(void)
     
     // Calculate bootinfo size
     size_t bi_size = sizeof(struct bootinfo) + sizeof(struct mem_region)*bi->regions_length;
-    debug_printf("bi_size: %d, regions: %d\n", bi_size, bi->regions_length);
 
     // Allocate frame for new bootinfo in own cspace
     // (FIXME we could skip this if we knew how to get a hold of
     //        the frame cap for the bootinfo at adress bi)
-    debug_printf("Allocating frame for bootinfo\n");
     struct capref bi_cap;
     size_t retbytes;
     err = frame_alloc(&bi_cap, bi_size, &retbytes);
@@ -905,33 +588,20 @@ errval_t spawn_spawnd(void)
     }
     
     // Allocate virtual memory in own vspace
-    debug_printf("Allocating vspace for bootinfo\n");
     lvaddr_t my_bi_addr;
     err = paging_map_frame_attr(get_current_paging_state(), (void**)&my_bi_addr,
         bi_size, bi_cap, VREGION_FLAGS_READ_WRITE_NOCACHE, NULL, NULL);
-
-    debug_printf("Copying bootinfo\n");    
     
     // Map the frame cap in spawnd's memory space
-    debug_printf("Mapping frame in spawnd's vmem\n");    
     err = paging_map_frame_attr(si.vspace, (void**)&spawnd_bi_addr,
         bi_size, bi_cap, VREGION_FLAGS_READ_WRITE_NOCACHE, NULL, NULL);
     if(err_is_fail(err)){
         debug_printf("Could not map bootinfo frame\n");
         abort();
     }
-    debug_printf("bootinfo mapped at addr 0x%08x\n", spawnd_bi_addr);
 
     // Copy bootinfo data to new frame
     memcpy((void *)my_bi_addr, bi, bi_size);
-    struct bootinfo *new_bi = (struct bootinfo *)my_bi_addr;
-    debug_printf("new_bi->regions_length: %d\n", new_bi->regions_length);
-    
-    for(uint32_t i = 0; i < 160; i+=4){
-        debug_printf("%d: 0x%08x\n", i, *((uint32_t *)my_bi_addr+i));
-    }
-    
-    
     
     // For region in region-length copy from inits module cnode to spawnd's module cnode
     // Run image
@@ -952,174 +622,6 @@ errval_t spawn_spawnd(void)
     return SYS_ERR_OK;    
 }
 
-// static errval_t spawn(char *name, domainid_t *pid)
-// {
-//     errval_t err;
-//
-//     struct ps_stack *new_elm =
-//         (struct ps_stack *) malloc(sizeof(struct ps_stack));
-//     new_elm->next = NULL;
-//     new_elm->pending_request = false;
-//     new_elm->state = NULL;
-//
-//     // Parse cmd line args
-//     const uint32_t argv_len = 20;
-//     char *argv[argv_len];
-//     uint32_t argc = spawn_tokenize_cmdargs(name, argv, argv_len);
-//     char amp = '&';
-//     if(strncmp(argv[argc-1], &amp, 1) != 0){
-//         argv[argc] = NULL;
-//         new_elm->background = false;
-//         stack_push(new_elm);
-//     } else {
-//         argv[argc-1] = NULL;
-//         new_elm->background = true;
-//         stack_insert_bottom(new_elm);
-//     }
-//
-//     for(uint32_t i = 0; i < 30; i++){
-//         new_elm->name[i] = name[i];
-//         if(name[i] == '\0'){
-//             break;
-//         }
-//     }
-//
-//     char *envp[1];
-//     envp[0] = NULL; // FIXME pass parent environment
-//
-//     // concat name with path
-//     const char *path = "armv7/sbin/"; // size 11
-//     char concat_name[strlen(name) + 11];
-//
-//     memcpy(concat_name, path, strlen(path));
-//     memcpy(&concat_name[strlen(path)], name, strlen(name)+1);
-//
-//     struct mem_region *mr = multiboot_find_module(bi, concat_name);
-//
-//     if (mr == NULL){
-//         // FIXME convert this to user space printing
-//         debug_printf("Could not spawn '%s': Program does not exist.\n", name);
-//         free(stack_pop());
-//         return SYS_ERR_OK;
-//     }
-//
-//     struct spawninfo si;
-//     si.domain_id = ++pid_counter;
-//     *pid = si.domain_id;
-//     new_elm->pid = *pid;
-//
-//     err = spawn_load_with_args(&si, mr, concat_name, disp_get_core_id(),
-//             argv, envp);
-//
-//     if (err_is_fail(err)) {
-//         debug_printf("Failed spawn image: %s\n", err_getstring(err));
-//         err_print_calltrace(err);
-//         return err;
-//     }
-//
-//     *pid = si.domain_id;
-//     //register_process(&si, name);
-//
-//     // Copy Init's EP to Spawned Process' CSpace
-//     struct capref cap_dest;
-//     cap_dest.cnode = si.taskcn;
-//     cap_dest.slot = TASKCN_SLOT_INITEP;
-//     err = cap_copy(cap_dest, cap_initep);
-//     if (err_is_fail(err)) {
-//         DEBUG_ERR(err, "failed to copy init ep to new process' cspace\n");
-//         return err;
-//     }
-//
-//     // Copy Parent Process's EP to Spawned Process' CSpace
-//     assert(!capref_is_null(cap_selfep));
-//     cap_dest.cnode = si.taskcn;
-//     cap_dest.slot = TASKCN_SLOT_REMEP;
-//     err = cap_copy(cap_dest, cap_selfep);
-//     if (err_is_fail(err)) {
-//         DEBUG_ERR(err, "failed to copy rem ep to new process' cspace\n");
-//         return err;
-//     }
-//
-//     //debug_printf("calling spawn_run\n");
-//     err = spawn_run(&si);
-//     if (err_is_fail(err)) {
-//         debug_printf("Failed spawn image: %s\n", err_getstring(err));
-//         err_print_calltrace(err);
-//         return err;
-//     }
-//
-//     err = spawn_free(&si);
-//     if (err_is_fail(err)) {
-//         DEBUG_ERR(err, "failed to free memeater domain from init memory\n");
-//         return err;
-//     }
-//
-//     return SYS_ERR_OK;
-// }
-
-static size_t get_pids_count(void) 
-{
-    struct ps_stack *temp = ps_stack;
-    size_t n = 0;
-    while (temp != NULL) {
-        temp = temp->next;
-        n++;
-    }
-    return n;
-}
-
-static errval_t get_pid_at_index(uint32_t idx, domainid_t *pid)
-{
-    assert(ps_stack);
-    struct ps_stack *current = ps_stack;
-
-    for (uint32_t j = 0; j < idx; j++) {
-        current = current->next;
-        assert(current != NULL);
-    }
-    
-    *pid = current->pid;
-    return SYS_ERR_OK;
-}
-
-static errval_t reply_string(struct lmp_chan *lc, const char *string)
-{
-    size_t slen = strlen(string) + 1; // adjust for null-character
-    size_t rlen = 0;
-    char buf[8];
-    errval_t err;
-    
-    while (rlen < slen) {
-        size_t chunk_size = ((slen-rlen) < 8) ? (slen-rlen) : 8;
-        memcpy(buf, string, chunk_size);
-        err = lmp_chan_send(lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP,
-                            9, SEND_TEXT, buf[0], buf[1], buf[2],
-                            buf[3], buf[4], buf[5], buf[6], buf[7]);
-
-        if (err_is_fail(err)) {
-            return err;
-        } 
-
-        string = &(string[8]);
-        rlen += 8;
-
-    }
-
-    return SYS_ERR_OK;
-}
-
-static const char *get_pid_name(domainid_t pid) 
-{
-    struct ps_stack *temp = ps_stack;
-    while (temp != NULL) {
-        if (pid == temp->pid) {
-            return temp->name;
-        }
-        temp = temp->next;
-    }
-    return NULL;
-}
-
 int main(int argc, char *argv[])
 {
     errval_t err;
@@ -1134,9 +636,6 @@ int main(int argc, char *argv[])
        printf(" %s", argv[i]);
     }
     printf("\n");
-
-    debug_printf("FIRSTEP_OFFSET should be %zu + %zu\n",
-            get_dispatcher_size(), offsetof(struct lmp_endpoint, k));
 
     // First argument contains the bootinfo location
     bi = (struct bootinfo*)strtol(argv[1], NULL, 10);
@@ -1155,17 +654,7 @@ int main(int argc, char *argv[])
         DEBUG_ERR(err, "Failed to init memory server module");
         abort();
     }
-    
-    int *int_buf = (int *)malloc(1000);
-    for (uint32_t i = 0; i < 1000; i++) {
-        int_buf[i] = 1;
-    }
-    debug_printf("Mem stuff done\n");
-    
-    // TODO (milestone 4): Implement a system to manage the device memory
-    // that's referenced by the capability in TASKCN_SLOT_IO in the task
-    // cnode. Additionally, export the functionality of that system to other
-    // domains by implementing the rpc call `aos_rpc_get_dev_cap()'.
+
     debug_printf("Initialized dev memory management\n");
 
     // Create our endpoint to self
@@ -1184,51 +673,30 @@ int main(int argc, char *argv[])
     struct waitset *ws = get_default_waitset();
     waitset_init(ws);
     
-    struct lmp_chan lc;
-    lmp_chan_init(&lc);
+    lmp_chan_init(&main_channel);
   
-    /* make local endpoint available -- this was minted in the kernel in a way
-     * such that the buffer is directly after the dispatcher struct and the
-     * buffer length corresponds DEFAULT_LMP_BUF_WORDS (excluding the kernel 
-     * sentinel word).
-     */
-    
-    // client_stack = (struct proc_state *) malloc(sizeof(struct proc_state));
-    // fst_process = (struct process *) malloc(sizeof(struct process));
+    struct lmp_endpoint *my_ep;
+    lmp_endpoint_setup(0, FIRSTEP_BUFLEN, &my_ep);
 
-    // Register INIT as first process!!!
-    
-    ps_stack = (struct ps_stack *)malloc(sizeof(struct ps_stack));
-    ps_stack->pid = disp_get_domain_id();
-    ps_stack->name[0] = 'i';
-    ps_stack->name[1] = 'n';
-    ps_stack->name[2] = 'i';
-    ps_stack->name[3] = 't';
-    ps_stack->name[4] = '\0';
+    main_channel.endpoint = my_ep;
+    main_channel.local_cap = cap_selfep;
 
-    ps_stack->next = NULL;
-    
-    // struct lmp_endpoint *my_ep;
-    // lmp_endpoint_setup(0, FIRSTEP_BUFLEN, &my_ep);
-    //
-    // lc.endpoint = my_ep;
-    // lc.local_cap = cap_selfep;
-    //
-    // // allocate slot for incoming capability from memeatermultiboot_find_module(bi, name);
-    // err = lmp_chan_alloc_recv_slot(&lc);
-    // if (err_is_fail(err)){
-    //     printf("Could not allocate receive slot!\n");
-    //     exit(-1);
-    // }
-    //
-    // // register receive handler
-    // err = lmp_chan_register_recv(&lc, ws, MKCLOSURE(recv_handler, &lc));
-    // if (err_is_fail(err)){
-    //     printf("Could not register receive handler!\n");
-    //     exit(-1);
-    // }
-    //
-    // debug_printf("cap_initep, cap_selfep OK.\n");
+    // allocate slot for incoming capability from memeatermultiboot_find_module(bi, name);
+    err = lmp_chan_alloc_recv_slot(&main_channel);
+    if (err_is_fail(err)){
+        printf("Could not allocate receive slot!\n");
+        exit(-1);
+    }
+
+    // register receive handler
+    err = lmp_chan_register_recv(&main_channel, ws,
+        MKCLOSURE(initial_recv_handler, NULL));
+    if (err_is_fail(err)){
+        printf("Could not register receive handler!\n");
+        abort();
+    }
+
+    debug_printf("cap_initep, cap_selfep OK.\n");
 
     size_t offset = OMAP44XX_MAP_L4_PER_UART3 - 0x40000000;
 
@@ -1258,56 +726,13 @@ int main(int argc, char *argv[])
 
     set_uart3_registers(uart_addr);
 
-    // Technically, we would just like to spawn a shell process and that's it.
-    // TODO
-
-    // PROCESS SPAWNING CODE 
-    // TO BE MOVED TO DEDICATED program afterwards.
-
-    debug_printf("Spawning spawnd\n");    
+    // Spawn spawnd
     err = spawn_spawnd();
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "failed to spawn spawnd\n");
         abort();
     }
 
-    // err = reply_string(&spawnd_state.lc, "shell");
-    // if (err_is_fail(err)) {
-    //     DEBUG_ERR(err, "Could not send message to spawn.\n");
-    //     abort();
-    // }
-    
-    lmp_chan_send1(&spawnd_state.lc, LMP_SEND_FLAGS_DEFAULT,
-                   NULL_CAP, PROCESS_SPAWN);
-    // err = spawn("spawnd", &spawnd_pid);
-    // if (err_is_fail(err)) {
-    //     DEBUG_ERR(err, "failed to spawn spawnd\n");
-    // } else {
-    //     debug_printf("Done\n");
-    // }
-    //
-    // debug_printf("spawning shell\n");
-    //
-    //
-    // err = spawn("memeater", &memeater_pid);
-    // if (err_is_fail(err)) {
-    //     DEBUG_ERR(err, "failed to spawn memeater\n");
-    // } else {
-    //     debug_printf("Done\n");
-    // }
-    
-    void *c = debug_print_stack;
-    c = reply_string;
-    c = get_pids_count;
-    c = get_pid_at_index;
-    c = get_pid_name;
-    c = stack_push;
-    c = stack_insert_bottom;
-    c = stack_pop;
-    c = &lc;
-    c=c;
-
-    debug_printf("Entering dispatch loop\n");
     while(true) {
         event_dispatch(get_default_waitset());
     }

@@ -26,7 +26,6 @@
 #include <barrelfish/lmp_chan.h>
 #include <barrelfish/aos_rpc.h>
 #include <barrelfish/sys_debug.h>
-#include <barrelfish/sys_debug.h>
 #include <omap44xx_map.h>
 
 // #include "../spawnd/spawnd.h"

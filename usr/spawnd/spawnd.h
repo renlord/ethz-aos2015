@@ -2,9 +2,11 @@
 #define SPAWND_H
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <barrelfish/barrelfish.h>
 #include <spawndomain/spawndomain.h>
 #include <barrelfish/debug.h>
+#include <barrelfish/capabilities.h>
 #include <mm/mm.h>
 
 // extern struct bootinfo *bi;
