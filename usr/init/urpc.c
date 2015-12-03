@@ -5,14 +5,17 @@ static coreid_t mycoreid;
 static bool sync_process_wait_finish; // we use this to hold the SHELL, when a process
 							   // does not run in background.
 
-static void _urpc_init(struct urpc_blob blob, enum blob_state state, 
-						uintptr_t start, coreid_t owner) 
+static void _urpc_init(enum blob_state state, uintptr_t start, coreid_t owner) 
 {
-	blob.base 		= (lvaddr_t) start;
-	blob.state		= state;
-	blob.owner	 	= owner;
+	struct urpc_blob temp = {
+		.state 	= state,
+		.owner 	= owner,
+		.inst 	= {
+			.code = URPC_NOP
+		}
+	};
 
-	memcpy((void *) blob.base, &blob, sizeof(struct urpc_blob));
+	memcpy((void *) start, &temp, sizeof(struct urpc_blob));
 }
 
 void urpc_init(uintptr_t start, coreid_t target_core) 
@@ -21,12 +24,19 @@ void urpc_init(uintptr_t start, coreid_t target_core)
 	assert(target_core != mycoreid);
 
 	if (mycoreid == 0) {
-		_urpc_init(out, READ, start, mycoreid);
-		_urpc_init(in, WRITTEN, start + 4096, target_core);
+		_urpc_init(READ, start, mycoreid);
+		out = (struct urpc_blob *) start;
+		_urpc_init(WRITTEN, start + 0x1000, target_core);
+		in = (struct urpc_blob *) (start + 0x1000);
 	} else {
-		_urpc_init(in, WRITTEN, start, target_core);
-		_urpc_init(out, READ, start, mycoreid);
+		_urpc_init(READ, start, target_core);
+		in = (struct urpc_blob *) start;
+		_urpc_init(WRITTEN, start + 0x1000, mycoreid);
+		out = (struct urpc_blob *) (start + 0x1000);
 	}
+
+	//debug_printf("OUT virtual memory address: 0x%08x\n", out);
+	//debug_printf("IN virtual memory address: 0x%08x\n", in);
 
 	sync_process_wait_finish = true;
 }
@@ -64,10 +74,13 @@ static void urpc_process_spawn(struct urpc_spawn *inst) {
 	}
 }
 
-errval_t urpc_poll(coreid_t coreid)
+int urpc_poll(void)
 {
 	errval_t err;
 	struct urpc_inst inst;
+
+	debug_printf("urpc polling...\n");
+
 	while (true) {
 		err = urpc_read(&inst); 
 		if (err_is_fail(err)) {
@@ -76,6 +89,10 @@ errval_t urpc_poll(coreid_t coreid)
 		}
 
 		switch(inst.code) {
+			case URPC_NOP: {
+				debug_printf("URPC NOP!\n");
+				break;
+			}
 			case URPC_SPAWN: {
 				urpc_process_spawn(&(inst.inst.spawn_inst));
 				break;
@@ -85,7 +102,7 @@ errval_t urpc_poll(coreid_t coreid)
 			}
 		}
 	}
-    return SYS_ERR_OK;
+	return 0;
 }
 
 errval_t urpc_remote_spawn(coreid_t exec_core, 
@@ -114,13 +131,9 @@ errval_t urpc_remote_spawn(coreid_t exec_core,
 		}
 	};
 
-	debug_printf("HELLO \n");
-	debug_printf("received appname: %s\n", appname);
+	strcpy((char *) instr.appname, appname);
 
-	memcpy(&(instr.appname), 0, 256);
-	memcpy(&(instr.appname), appname, strlen(appname));
-
-	debug_printf("HELLO 1\n");
+	debug_printf("OUT STATUS: %d\n", out->state); // want 1 instead of 0;
 
 	errval_t err = urpc_write(&_inst);
 	if (err_is_fail(err)) {

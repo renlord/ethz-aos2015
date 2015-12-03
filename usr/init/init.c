@@ -823,6 +823,7 @@ int main(int argc, char *argv[])
             abort();
         }
         debug_printf("URPC Physical Addr: 0x%08x\n", urpc_frame_id.base);
+        debug_printf("URPC Virtual Addr: 0x%08x\n", buf);
 
         urpc_init((uintptr_t) buf, 1);
 
@@ -937,22 +938,28 @@ int main(int argc, char *argv[])
         err_print_calltrace(err);
         abort();
     }
+    debug_printf("UART ADDRESS: 0x%08x\n", uart_addr);
+    err = paging_map_user_device(get_current_paging_state(), uart_addr,
+                        copy, offset, OMAP44XX_MAP_L4_PER_UART3_SIZE,
+                        VREGION_FLAGS_READ_WRITE_NOCACHE);
 
-    if (my_core_id == 0) {
-        err = paging_map_user_device(get_current_paging_state(), uart_addr,
-                            copy, offset, OMAP44XX_MAP_L4_PER_UART3_SIZE,
-                            VREGION_FLAGS_READ_WRITE_NOCACHE);
 
+    if (err_is_fail(err)) {
+        debug_printf("Could not map io cap: %s\n", err_getstring(err));
+        err_print_calltrace(err);
+        abort();
+    } else {
+        debug_printf("cap_io mapped OK.\n");
+    }
 
-        if (err_is_fail(err)) {
-            debug_printf("Could not map io cap: %s\n", err_getstring(err));
-            err_print_calltrace(err);
-            abort();
-        } else {
-            debug_printf("cap_io mapped OK.\n");
-        }
-
-        set_uart3_registers(uart_addr);
+    set_uart3_registers(uart_addr);
+    
+    struct thread *urpc_poll_thread = thread_create((thread_func_t) urpc_poll, 
+                                                    NULL);
+    err = thread_detach(urpc_poll_thread);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "failed to detach URPC polling thread\n");
+        abort();
     }
 
     if (my_core_id == 0) {

@@ -97,7 +97,8 @@ static size_t syscall_terminal_write(const char *buf, size_t len)
         if (err_is_fail(err)) {
             debug_printf("userland printf fail! %s\n", err_getstring(err));
             err_print_calltrace(err);
-            break;
+            abort();
+            //break;
         }   
     }
     return 0;
