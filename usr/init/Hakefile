@@ -11,7 +11,7 @@
 --------------------------------------------------------------------------
 
 [ build application { target = "init",
-  		      cFiles = [ "mem_alloc.c", "init.c", "mem_serv.c" ],
+  		      cFiles = [ "mem_alloc.c", "init.c", "mem_serv.c", "urpc.c" ],
                       flounderDefs = [ "mem" ],
                       addLinkFlags = [ "-e _start_init"],
                       addLibraries = [ "mm", "getopt", "trace", "elf",

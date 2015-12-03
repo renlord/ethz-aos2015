@@ -28,15 +28,8 @@
 #include <barrelfish/sys_debug.h>
 #include <omap44xx_map.h>
 #include <spawndomain/spawndomain.h>
-#include <stdlib.h>
-#include <string.h>
-#include <barrelfish/morecore.h>
-#include <barrelfish/dispatcher_arch.h>
-#include <barrelfish/debug.h>
-#include <barrelfish/lmp_chan.h>
-#include <barrelfish/aos_rpc.h>
-#include <barrelfish/sys_debug.h>
-#include <omap44xx_map.h>
+
+#include "urpc.h"
 
 extern struct bootinfo *bi;
 
@@ -56,9 +49,9 @@ enum urpc_response {
 };
 
 enum state_status {
-    ACTIVE,
-    WAITING,
-    BACKGROUND,
+	ACTIVE,
+	WAITING,
+	BACKGROUND
 };
 
 struct ps_state {
@@ -109,5 +102,7 @@ static inline errval_t serial_get_char(char *c)
 
 void recv_handler(void *lc_in);
 void send_handler(void *client_state_in);
+errval_t spawn(char *name, domainid_t *pid, coreid_t coreid);
+
 
 #endif // INIT_H

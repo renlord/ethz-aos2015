@@ -432,6 +432,7 @@ static errval_t spawn_spawnd(void)
 
     char *envp[1];
     envp[0] = NULL; // FIXME pass parent environment
+
     
     struct mem_region *mr = multiboot_find_module(bi, "armv7/sbin/spawnd");
     
@@ -454,7 +455,7 @@ static errval_t spawn_spawnd(void)
     } else {
         debug_printf("Spawn succesful.\n");
     }
-        
+
     struct capref spawnd_selfep = {
         .cnode = si.taskcn,
         .slot = TASKCN_SLOT_SELFEP
@@ -618,7 +619,6 @@ int main(int argc, char *argv[])
         strncpy((char *) buf, test_str, 5);
         debug_printf("TEST STRING: %s\n", buf);
 #endif
-
         struct frame_identity urpc_frame_id; 
         err = invoke_frame_identify(urpc_frame, &urpc_frame_id);
         if (err_is_fail(err)) {
@@ -626,6 +626,9 @@ int main(int argc, char *argv[])
             abort();
         }
         debug_printf("URPC Physical Addr: 0x%08x\n", urpc_frame_id.base);
+        debug_printf("URPC Virtual Addr: 0x%08x\n", buf);
+
+        urpc_init((uintptr_t) buf, 1);
 
         err = spawn_core_load_kernel(bi, 1, 1, "", urpc_frame_id, cap_kernel);
         if (err_is_fail(err)) {
@@ -646,6 +649,8 @@ int main(int argc, char *argv[])
             DEBUG_ERR(err, "fail to map urpc frames\n");
             abort();
         }
+
+        urpc_init((uintptr_t) buf, 0);
 
 #ifdef INIT_COMM_TEST
         struct frame_identity urpc_frame_id; 
@@ -714,10 +719,10 @@ int main(int argc, char *argv[])
         err_print_calltrace(err);
         abort();
     }
-
+    debug_printf("UART ADDRESS: 0x%08x\n", uart_addr);
     err = paging_map_user_device(get_current_paging_state(), uart_addr,
-                            copy, offset, OMAP44XX_MAP_L4_PER_UART3_SIZE,
-                            VREGION_FLAGS_READ_WRITE_NOCACHE);
+                        copy, offset, OMAP44XX_MAP_L4_PER_UART3_SIZE,
+                        VREGION_FLAGS_READ_WRITE_NOCACHE);
 
 
     if (err_is_fail(err)) {
@@ -729,6 +734,14 @@ int main(int argc, char *argv[])
     }
 
     set_uart3_registers(uart_addr);
+    
+    struct thread *urpc_poll_thread = thread_create((thread_func_t) urpc_poll, 
+                                                    NULL);
+    err = thread_detach(urpc_poll_thread);
+    if (err_is_fail(err)) {
+        DEBUG_ERR(err, "failed to detach URPC polling thread\n");
+        abort();
+    }
 
 
     if (my_core_id == 0) {

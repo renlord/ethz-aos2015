@@ -58,7 +58,7 @@ void libc_exit(int status)
         // we will call spawnd service to clean a domain
         aos_rpc_send_string(&local_rpc, "bye");
         thread_exit();
-        event_dispatch(get_default_waitset());
+        //event_dispatch(get_default_waitset());
         // errval_t err = cap_revoke(cap_dispatcher);
         // if (err_is_fail(err)) {
         //     sys_print("revoking dispatcher failed in _Exit, spinning!", 100);
@@ -87,22 +87,19 @@ static void libc_assert(const char *expression, const char *file,
     sys_print(buf, len < sizeof(buf) ? len : sizeof(buf));
 }
 
-static void print_line(const char *str, size_t len) 
+static size_t syscall_terminal_write(const char *buf, size_t len)
 {
     for (size_t i = 0; i < len; i++) {
-        errval_t err = aos_rpc_serial_putchar(&local_rpc, str[i]);
+        if (buf[i] == '\n') {
+            aos_rpc_serial_putchar(&local_rpc, '\r');
+        }
+        errval_t err = aos_rpc_serial_putchar(&local_rpc, buf[i]);
         if (err_is_fail(err)) {
             debug_printf("userland printf fail! %s\n", err_getstring(err));
             err_print_calltrace(err);
-            break;
+            abort();
+            //break;
         }   
-    }
-}
-
-static size_t syscall_terminal_write(const char *buf, size_t len)
-{
-    if (len) {
-        print_line(buf, len);
     }
     return 0;
 }

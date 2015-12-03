@@ -397,19 +397,21 @@ errval_t aos_rpc_serial_putchar(struct aos_rpc *chan, char c)
 }
 
 errval_t aos_rpc_process_spawn(struct aos_rpc *chan, char *name,
-                               domainid_t *newpid)
+                               coreid_t coreid, domainid_t *newpid)
 {
     // TODO (milestone 5): implement spawn new process rpc
     struct lmp_chan spawnd_lc = chan->spawnd_lc;
     errval_t err;
 
     err = aos_chan_send_string(&chan->spawnd_lc, name);
+
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "fail to send process name to init.\n");
         return err;
     }
-    err = lmp_chan_send1(&spawnd_lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
-        PROCESS_SPAWN);
+
+    err = lmp_chan_send2(&spawnd_lc, LMP_SEND_FLAGS_DEFAULT, NULL_CAP, 
+        PROCESS_SPAWN, coreid);
 
     if (err_is_fail(err)) {
         DEBUG_ERR(err, "fail to send PROCESS_SPAWN event to init.\n");

@@ -10,7 +10,7 @@
 #include <barrelfish/paging.h>
 #include <omap44xx_map.h>
 
-#define SMALL_CHUMP_ARRAY_SIZE (1UL << 10)
+#define SMALL_CHUMP_ARRAY_SIZE (1UL << 6)
 #define SMALL_CHUMP_SIZE (1UL << 2)
 
 #define MEDIUM_CHUMP_ARRAY_SIZE (1UL << 10)
@@ -18,78 +18,23 @@
 
 #define BIG_CHUMP_ARRAY_SIZE (1UL << 3)
 #define BIG_CHUMP_SIZE (1UL << 25)
-
-// List of User Programs
-#define N_APP 			4
-#define OUTPUT_LEN 		256
-
-const char *usr_app[] = { "shell", "memeater", "hello", "blink" };
-
-static inline void list_app(void)
-{	
-	printf("###### AVAILABLE APPLICATIONS ######\r\n");
-	for (int i = 0; i < N_APP; i++) {
-		printf("%d. %s\r\n", i, usr_app[i]);
-	}
-	printf("###################################\r\n");
-}
-
-static inline bool is_user_app(const char *name)
-{
-	for (int i = 0; i < N_APP; i++) {
-		if (strcmp(name, usr_app[i]) == 0) {
-			return true;
-		}
-	}
-	return false;
-}
-
-static inline void *my_malloc(size_t size)
+    
+static void *my_malloc(size_t size)
 {
     void *buf;
     paging_alloc(get_current_paging_state(), &buf, size);
     return buf;
 }
 
-static inline void my_free(void *buf)
+static void my_free(void *buf)
 {
     paging_dealloc(get_current_paging_state(), buf);
 }
 
-/* 
- * \brief gets the first token of the string and stores in *head. 
- *
- * \param str, the string where the first token should be extracted.
- * \param head, the pointer where the first token will be pointed to
- * \param delim, delimiting character of choice
- *
- * \return remaining string after first token is extracted
- */
-static inline char *headstr(char *str, char *head, int delim)
-{
-    assert(head != NULL);
-    int len = strlen(str);
-    int i;
-    char *buf = str;
-
-    for (i = 0; i < len; i++, buf++) {
-        if (*buf == delim) {
-            break;
-        }
-    }
-
-    if (i == (len - 1)) 
-        return str;
-
-    memcpy(head, str, i);
-    head[i+1] = '\0';
-
-    return buf+1;
-}
-
 static void **allocate_array(size_t chump_size, uint32_t array_size)
 {
-    void **array = (void **)my_malloc(array_size*sizeof(void*));
+    void **array =
+        (void **)my_malloc(array_size*sizeof(void*));
 
     for (uint32_t i = 0; i < array_size; i++) {
         uint32_t *test = (uint32_t *) my_malloc(chump_size);
@@ -98,6 +43,7 @@ static void **allocate_array(size_t chump_size, uint32_t array_size)
     }
     return array;
 }
+
 
 static void check_array(void **array, uint32_t array_size)
 {
@@ -127,23 +73,40 @@ static void perform_array_test(size_t chump_size, uint32_t array_size)
 {
     size_t free_s, alloc_s, max_s;
             
-    printf("Creating array...\r\n");
+    printf("Creating array...\n");
     void **array = allocate_array(chump_size, array_size);
-    printf("Array created with start addr 0x%08x.\r\n", array);
+    printf("Array created with start addr 0x%08x.\n", array);
     
     debug_get_free_space(&free_s, &alloc_s, &max_s);
-    printf("Free space: %d MB, allocated space: %d MB, max blob: %d MB\r\n", 
+    printf("Free space: %d MB, allocated space: %d MB, max blob: %d MB\n",
         (free_s >> 20), (alloc_s >> 20), (max_s >> 20));
     
-    printf("Checking array...\r\n");
+    printf("Checking array...\n");
     check_array(array, array_size);
-    printf("Array checked.\r\n");
+    printf("Array checked.\n");
     
-    printf("Freeing array...\r\n");
+    printf("Freeing array...\n");
     free_array(array, array_size);
-    printf("Array freed.\r\n");
+    printf("Array freed.\n");
     
     debug_get_free_space(&free_s, &alloc_s, &max_s);
-    printf("Free space: %d MB, allocated space: %d MB, max blob: %d MB\r\n", 
+    printf("Free space: %d MB, allocated space: %d MB, max blob: %d MB\n",
         (free_s >> 20), (alloc_s >> 20), (max_s >> 20));
+}
+
+int main(int argc, char *argv[])
+{
+    printf("Performing small chump test...\n");
+    perform_array_test(SMALL_CHUMP_SIZE, SMALL_CHUMP_ARRAY_SIZE);
+    printf("Done\n");
+
+    // printf("Performing medium chump test...\n");
+    // perform_array_test(MEDIUM_CHUMP_SIZE, MEDIUM_CHUMP_ARRAY_SIZE);
+    // printf("Done\f");
+
+    // printf("Performing big chump test...\n");
+    // perform_array_test(BIG_CHUMP_SIZE, BIG_CHUMP_ARRAY_SIZE);
+    // printf("Done\f");
+
+    return 0;
 }
