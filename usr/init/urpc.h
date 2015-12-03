@@ -22,6 +22,8 @@ enum urpc_spawn_status {
 	SPAWN,
 	SPAWN_DONE,
 	EXEC_DONE,
+	SPAWN_FAIL,
+	SPAWN_UNKNOWN,
 };
 
 struct urpc_spawn {
@@ -65,7 +67,7 @@ static inline void set_nop_inst(struct urpc_inst *inst_slot)
 static inline bool urpc_is_readable(void) 
 {
 	assert(in != NULL);
-	return urpc_check_inst_nop(in) && (in->state == WRITTEN);
+	return !urpc_check_inst_nop(in) && (in->state == WRITTEN);
 }
 
 static inline bool urpc_is_writable(void) 
@@ -85,7 +87,12 @@ static inline void urpc_mark_blob_written(struct urpc_blob *buf)
 {
 	assert(buf != NULL);
 	buf->state = WRITTEN;
-	set_nop_inst(&(buf->inst));
+}
+
+static inline void spawn_inst_copy(struct urpc_spawn *s1, struct urpc_spawn *s2)
+{
+	*s2 = *s1;
+	strcpy(s2->appname, s1->appname);
 }
 
 static inline errval_t urpc_read(struct urpc_inst *inst) 
@@ -98,20 +105,21 @@ static inline errval_t urpc_read(struct urpc_inst *inst)
 
 	//debug_printf("URPC RECEIVED: %s\n", buf->content);
 	//debug_printf("URPC READ: %s\n", msg);
+	debug_printf("GOT PROCESS NAME: %s\n", in->inst.inst.spawn_inst.appname);
 	urpc_mark_blob_read(in);
 	return SYS_ERR_OK;
 }
 
-static inline errval_t urpc_write(struct urpc_inst *inst) 
+static inline errval_t urpc_write(struct urpc_inst *_inst) 
 {
-	assert(inst != NULL && out != NULL);
+	assert(out != NULL);
 	while(!urpc_is_writable()) {
 		thread_yield();
 	}
 
-	assert(&(out->inst) != NULL);
-	memcpy((void *) &(out->inst), inst, sizeof(struct urpc_inst));
-
+	debug_printf("before copy appname: %s\n", _inst->inst.spawn_inst.appname);
+	memcpy(&(out->inst), _inst, sizeof(struct urpc_inst));
+	debug_printf("FINAL out appname: %s\n", out->inst.inst.spawn_inst.appname);
 	urpc_mark_blob_written(out);
 	//debug_printf("wrote to urpc frame\n");
 	return SYS_ERR_OK;

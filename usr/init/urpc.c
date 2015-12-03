@@ -47,30 +47,30 @@ static void urpc_process_spawn(struct urpc_spawn *inst) {
 
 	switch(inst->status) {
 		case SPAWN:
-		{
-			// call init's spawn.
 			err = spawn(inst->appname, &(inst->pid), inst->exec_core);
 			if (err_is_fail(err)) {
 				DEBUG_ERR(err, "failed to spawn at destination core\n");
 				abort();
 			}
 			break;
-		}
 		case SPAWN_DONE:
-		{
 			// this core is being informed that a process has been spawned in 
 			// the other core!
 			debug_printf("Process ID: %d spawned in Core: %d\n", inst->pid, 
 						 inst->exec_core);
 			break;
-		}
 		case EXEC_DONE:
-		{
 			// this core is being informed that a foreground process terminated
 			// on the other core!
 			sync_process_wait_finish = true;
 			break;
-		}
+		case SPAWN_FAIL:
+
+			break;
+		case SPAWN_UNKNOWN:
+
+			break;
+
 	}
 }
 
@@ -131,9 +131,7 @@ errval_t urpc_remote_spawn(coreid_t exec_core,
 		}
 	};
 
-	strcpy((char *) instr.appname, appname);
-
-	debug_printf("OUT STATUS: %d\n", out->state); // want 1 instead of 0;
+	strcpy((char *) &(_inst.inst.spawn_inst.appname), appname);
 
 	errval_t err = urpc_write(&_inst);
 	if (err_is_fail(err)) {
