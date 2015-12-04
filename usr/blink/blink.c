@@ -99,8 +99,5 @@ int main(int argc, char *argv[])
         err_print_calltrace(err);
     }
 
-    debug_printf("blink entering infinite loop\n");
-    while (true);
-    
     return 0;
 }

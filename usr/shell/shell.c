@@ -155,7 +155,7 @@ static void ps(void)
     
     const char *divide = "+--------------------------+\n";
     printf(divide);
-    printf("| Number of processes: %*d |\n", pid_count);
+    printf("| Number of processes: %d |\n", pid_count);
     printf(divide);
     
     for(uint32_t j = 0; j < pid_count; j++){
@@ -218,8 +218,8 @@ int main(int argc, char *argv[])
                 printf("Spawned process `%s` - pid: %d\n", cmd, pid);
             }
             //printf("executing %s...\n", cmd);
-            memset(input_buf, '\0', 256);
-            memset(cmd, '\0', 64);
+            memset(input_buf, 0, 256);
+            memset(cmd, 0, 64);
             continue;
         } 
 
@@ -260,7 +260,7 @@ int main(int argc, char *argv[])
         } else {
             printf("unknown command. try again\n");
         }
-
-        memset(input_buf, '\0', 256);
+        memset(cmd, 0, 64);
+        memset(input_buf, 0, 256);
     }
 }
