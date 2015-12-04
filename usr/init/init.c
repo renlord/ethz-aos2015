@@ -339,7 +339,7 @@ void recv_handler(void *lc_in)
                 // void *x = deregister_process;
                 // x=x;
                 // stack_remove_state(proc);
-                if(is_top){
+                if(is_top) {
                     // debug_print_stack();
                     // deregister_process(elm->process);
                     stack_pop();
@@ -512,7 +512,7 @@ void recv_handler(void *lc_in)
         }
     }
     
-    if(reply){
+    if(reply) { 
         assert(elm != NULL);
         
         if (postpone){

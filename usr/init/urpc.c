@@ -2,9 +2,6 @@
 
 static coreid_t mycoreid;
 
-static bool sync_process_wait_finish; // we use this to hold the SHELL, when a process
-							   // does not run in background.
-
 static void _urpc_init(enum blob_state state, uintptr_t start, coreid_t owner) 
 {
 	struct urpc_blob temp = {
@@ -37,8 +34,6 @@ void urpc_init(uintptr_t start, coreid_t target_core)
 
 	//debug_printf("OUT virtual memory address: 0x%08x\n", out);
 	//debug_printf("IN virtual memory address: 0x%08x\n", in);
-
-	sync_process_wait_finish = true;
 }
 
 static void urpc_process_spawn(struct urpc_spawn *inst) {
@@ -62,7 +57,6 @@ static void urpc_process_spawn(struct urpc_spawn *inst) {
 		case EXEC_DONE:
 			// this core is being informed that a foreground process terminated
 			// on the other core!
-			sync_process_wait_finish = true;
 			break;
 		case SPAWN_FAIL:
 
@@ -138,14 +132,6 @@ errval_t urpc_remote_spawn(coreid_t exec_core,
 		DEBUG_ERR(err, "failed to write urpc frame\n");
 		return err;
 	}
-
-	if (!background) {
-		while(sync_process_wait_finish) {
-			thread_yield();
-		}
-	}
-
-	sync_process_wait_finish = true;
 
 	return SYS_ERR_OK;
 }
