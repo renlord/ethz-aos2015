@@ -43,15 +43,15 @@ void urpc_init(uintptr_t start, coreid_t target_core)
 
 static void urpc_process_spawn(struct urpc_spawn *inst) {
 
-	errval_t err;
+	//errval_t err;
 
 	switch(inst->status) {
 		case SPAWN:
-			err = spawn(inst->appname, &(inst->pid), inst->exec_core);
-			if (err_is_fail(err)) {
-				DEBUG_ERR(err, "failed to spawn at destination core\n");
-				abort();
-			}
+			// err = spawn(inst->appname, &(inst->pid), inst->exec_core);
+			// if (err_is_fail(err)) {
+			// 	DEBUG_ERR(err, "failed to spawn at destination core\n");
+			// 	abort();
+			// }
 			break;
 		case SPAWN_DONE:
 			// this core is being informed that a process has been spawned in 
