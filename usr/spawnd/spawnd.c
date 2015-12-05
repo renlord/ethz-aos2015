@@ -292,6 +292,10 @@ static void default_recv_handler(void *ps_state_in)
                 char buf[50];
                 debug_print_ps_stack(buf);
                 debug_printf("STACK:\n%s\n", buf);
+            } else if (strcmp(local_rpc.msg_buf, "exit") == 0) {
+                char buf[50];
+                debug_print_ps_stack(buf);
+                debug_printf("STACK:\n%s\n", buf);
             }
             
             break;
@@ -401,6 +405,20 @@ static errval_t spawn(char *name, domainid_t parent_pid,
     
     struct ps_state *parent = get_state_by_pid(ps_root, parent_pid);
     struct ps_state *new_state = create_new_ps_state(parent, name);
+    
+    /* URPC REMOTE SPAWN */
+    debug_printf("PROCESS SPAWN CORE ID: %d\n", coreid);
+    if (coreid != my_core_id) {
+        err = urpc_remote_spawn(coreid, name, pid_counter + 1, 
+                                new_elm->background, SPAWN);
+        if (err_is_fail(err)) {
+            err_print_calltrace(err);
+            DEBUG_ERR(err, "fail urpc send to destination core: %d\n", coreid);
+            return err;
+        }
+
+        return SYS_ERR_OK;
+    }
 
     struct spawninfo si;
     si.domain_id = *return_pid = new_state->pid;
