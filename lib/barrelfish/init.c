@@ -89,7 +89,8 @@ static void libc_assert(const char *expression, const char *file,
 
 static size_t syscall_terminal_write(const char *buf, size_t len)
 {
-    for (size_t i = 0; i < len; i++) {
+    size_t i;
+    for (i = 0; i < len; i++) {
         if (buf[i] == '\n') {
             aos_rpc_serial_putchar(&local_rpc, '\r');
         }
@@ -101,7 +102,8 @@ static size_t syscall_terminal_write(const char *buf, size_t len)
             //break;
         }   
     }
-    return 0;
+    //debug_printf("characters printed: %d\n", n);
+    return i;
 }
 
 // static void scan_line(char *buf, size_t len) 

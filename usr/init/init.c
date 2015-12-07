@@ -347,6 +347,10 @@ void recv_handler(void *lc_in)
                     // if(ps_stack->pending_request){
                         debug_printf("Next process should run now\n");
                         elm = ps_stack;
+                        if (elm == NULL) {
+                            break;
+                        }
+                        debug_printf("bla\n");
                         proc = elm->state;
                         reply = true;
                     // } else {
@@ -533,7 +537,10 @@ void recv_handler(void *lc_in)
             }            
         }
     } else {
-        elm->pending_request = false;
+        // XXX: FIXME
+        if (elm != NULL) {
+            elm->pending_request = false;
+        }
     }
 }
 
@@ -893,15 +900,16 @@ int main(int argc, char *argv[])
 
     // Register INIT as first process!!!
     
-    ps_stack = (struct ps_stack *)malloc(sizeof(struct ps_stack));
-    ps_stack->pid = disp_get_domain_id();
-    ps_stack->name[0] = 'i';
-    ps_stack->name[1] = 'n';
-    ps_stack->name[2] = 'i';
-    ps_stack->name[3] = 't';
-    ps_stack->name[4] = '\0';
+    // ps_stack = (struct ps_stack *)malloc(sizeof(struct ps_stack));
+    // ps_stack->pid = disp_get_domain_id();
+    // ps_stack->name[0] = 'i';
+    // ps_stack->name[1] = 'n';
+    // ps_stack->name[2] = 'i';
+    // ps_stack->name[3] = 't';
+    // ps_stack->name[4] = '\0';
+    ps_stack = NULL;
 
-    ps_stack->next = NULL;
+    //ps_stack->next = NULL;
     
     struct lmp_endpoint *my_ep;
     lmp_endpoint_setup(0, FIRSTEP_BUFLEN, &my_ep);
