@@ -24,6 +24,10 @@
 #define TASKCN_SLOT_INITEP      (TASKCN_SLOTS_USER+1)   ///< End Point to init
 #define TASKCN_SLOT_REMEP       (TASKCN_SLOTS_USER+2)   ///< End Point to remote
 
+/* Custom CNodes */
+#define TASKCN_SLOT_PARENTEP    (TASKCN_SLOTS_USER+3)   ///< Endpoint to parent
+#define TASKCN_SLOT_SPAWNDEP    (TASKCN_SLOTS_USER+4)   ///< End Point to spawnd
+
 // taskcn appears at the beginning of cspace, so the cptrs match the slot numbers
 #define CPTR_ROOTCN     TASKCN_SLOT_ROOTCN      ///< Cptr to init's root CNode
 

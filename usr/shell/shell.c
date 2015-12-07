@@ -66,7 +66,7 @@ static void shell_input(char *buf, size_t len)
         }
 
         if (c == RETURN && count > 0) {
-            printf("\n");
+            printf("\r\n");
             break;
         }
 
@@ -95,11 +95,6 @@ static void get_argv(char *str, char **argv, int *args)
     }
 
     *args = i;
-}
-
-static void echo(char *rbuf)
-{
-    printf("%s\n", rbuf);
 }
 
 static void run_memtest(char *input_argv) 
@@ -183,6 +178,29 @@ static errval_t oncore(char *input_argv, domainid_t *new_pid)
     return spawn(argv, coreid, new_pid);
 }
 
+static void ps(void)
+{
+    domainid_t *pids;
+    size_t pid_count;
+    errval_t err = aos_rpc_process_get_all_pids(&local_rpc, &pids, &pid_count);
+    if(err_is_fail(err)) {
+        err_print_calltrace(err);
+        abort();
+    }
+    
+    const char *divide = "+--------------------------+\n";
+    printf(divide);
+    printf("| Number of processes: %d |\n", pid_count);
+    printf(divide);
+    
+    for(uint32_t j = 0; j < pid_count; j++){
+        char *name_buf = (char *)malloc(20);
+        aos_rpc_process_get_name(&local_rpc, pids[j], &name_buf);
+        printf("| %d. %-15s %d |\n", j, name_buf, pids[j]);
+    }
+    printf(divide);
+}
+
 
 static void set_shell(char *argv_str) 
 {
@@ -202,6 +220,11 @@ static void set_shell(char *argv_str)
                 shell_config.height);
         }
     }
+}
+
+static void echo(char *rbuf)
+{
+    printf("%s\n", rbuf);
 }
 
 int main(int argc, char *argv[])
@@ -228,49 +251,55 @@ int main(int argc, char *argv[])
         if (is_user_app(cmd)) {
             // execute spawn user application and provide arguments.
             domainid_t pid;
-            err = spawn(input_buf, shell_config.coreid, &pid);
+            errval_t err = spawn(input_buf, shell_config.coreid, &pid);
             if (err_is_fail(err)) {
                 printf("Oops! Failed to spawn `%s` process\n", cmd);
             } else {
                 printf("Spawned process `%s` - pid: %d\n", cmd, pid);
             }
-        } else {
-            if (strcmp(cmd, "echo") == 0) {
-                echo (input_argv);
-            } else if (strcmp(cmd, "exit") == 0) {
-                printf("exiting shell... goodbye\n");
-                break;
-            } else if (strcmp(cmd, "run_memtest") == 0) {
-                // forks a thread and runs a memory test.
-                run_memtest(input_argv);
-            } else if (strcmp(cmd, "oncore") == 0) {
-                // eg. oncore 1 [USR_APP]
-                // eg. oncore 2 [USR_APP]
-                domainid_t pid;
-                oncore(input_argv, &pid);
-                //printf("execution on process: %d");
-            } else if (strcmp(cmd, "ps") == 0) {
-                ps(input_argv);
-            } else if (strcmp(cmd, "kill") == 0) {
-                printf("NYI!\n");
-            } else if (strcmp(cmd, "fg") == 0) {
-                printf("NYI!\n");
-            } else if (strcmp(cmd, "jobs") == 0) {
-                printf("NYI!\n");
-            } else if (strcmp(cmd, "list") == 0) {
-                list_app();
-            } else if (strcmp(cmd, "clear") == 0) {
-                clear();
-            } else if (strcmp(cmd, "set") == 0 ) {
-                set_shell(input_argv);
-            } else if (strcmp(cmd, "pikachu") == 0) {
-                printf("%s\n", pikachu_img);
-            } else {
-                printf("unknown command. try again\n");
-            }
-        }
-        memset(input_buf, '\0', 256);
-        memset(cmd, '\0', 64);
+            //printf("executing %s...\n", cmd);
+            memset(input_buf, 0, 256);
+            memset(cmd, 0, 64);
+            continue;
+        } 
+
+        if (strcmp(cmd, "echo") == 0) {
+            echo (input_argv);
+        } else if (strcmp(cmd, "exit") == 0) {
+            printf("exiting shell... goodbye\n");
+            break;
+        } else if (strcmp(cmd, "run_memtest") == 0) {
+            // forks a thread and runs a memory test.
+            run_memtest(input_argv);
+        } else if (strcmp(cmd, "oncore") == 0) {
+            // eg. oncore 1 [USR_APP]
+            // eg. oncore 2 [USR_APP]
+            domainid_t pid;
+            oncore(input_argv, &pid);
+            //printf("execution on process: %d");
+        } else if (strcmp(cmd, "ps") == 0) {
+            ps();
+        } else if (strncmp(cmd, "pstree", 6) == 0) {
+            aos_chan_send_string(&local_rpc.spawnd_lc, "pstree");
+        } else if (strncmp(cmd, "psstack", 7) == 0) {
+            aos_chan_send_string(&local_rpc.spawnd_lc, "psstack");
+        } else if (strcmp(cmd, "kill") == 0) {
+            printf("NYI!\n");
+        } else if (strcmp(cmd, "fg") == 0) {
+            printf("NYI!\n");
+        } else if (strcmp(cmd, "jobs") == 0) {
+            printf("NYI!\n");
+        } else if (strcmp(cmd, "list") == 0) {
+            list_app();
+        } else if (strcmp(cmd, "clear") == 0) {
+            clear();
+        } else if (strcmp(cmd, "set") == 0 ) {
+            set_shell(input_argv);
+        } else if (strcmp(cmd, "pikachu") == 0) {
+            printf(pikachu_img); // not sure why the full pikachu does not print?
+        memset(cmd, 0, 64);
+        memset(input_buf, 0, 256);
     }
+
     return 0;
 }

@@ -12,8 +12,9 @@ module	/armv7/sbin/cpu_omap44xx
 module	/armv7/sbin/init
 module	/armv7/sbin/blink
 module	/armv7/sbin/shell
+module  /armv7/sbin/memeater
 module	/armv7/sbin/hello
-module	/armv7/sbin/memeater
+module	/armv7/sbin/spawnd
 
 # TODO: add different modules here for later milestones
 
